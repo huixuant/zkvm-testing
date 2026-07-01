@@ -1,0 +1,7 @@
+[package]
+name = "ledger"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+jolt = { package = "jolt-sdk", git = "https://github.com/a16z/jolt" }
