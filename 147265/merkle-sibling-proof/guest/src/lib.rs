@@ -37,7 +37,8 @@
 // ============================================================================
 
 #![cfg_attr(feature = "guest", no_std)]
-use core::hint::black_box;
+use core::mem::{align_of, size_of};
+use core::ptr::with_exposed_provenance;
 
 #[jolt::provable(heap_size = 65536, max_trace_length = 131072)]
 pub fn verify_merkle_inclusion(
@@ -50,29 +51,41 @@ pub fn verify_merkle_inclusion(
     s5: u64,
     s6: u64,
     s7: u64,
+    slot_map: u64,
     path_bits: u64,
-) -> u64 {
-    let siblings = [s0, s1, s2, s3, s4, s5, s6, s7];
+    committed_root: u64,
+) -> bool {
+    // The committed node page. Proofs reference nodes by arena slot, not value.
+    let node_arena = [s0, s1, s2, s3, s4, s5, s6, s7];
+
+    // Base handle for the arena: a bare integer address, as node ids are
+    // resolved against in a node-store-backed proof format.
+    let arena_base = (&node_arena[0] as *const u64).expose_provenance();
+
     let mut current = leaf;
 
-    for i in 0..8_usize {
-        // Load sibling hash through the #[cold] helper — exact reproducer shape:
-        // black_box prevents the optimizer from tracing the address; cold_sibling_ptr
-        // is #[cold] and returns Ok(ptr), but LLVM misoptimizes the discriminant.
-        let addr = black_box(&siblings[i] as *const u64 as usize);
-        let sibling = match cold_sibling_ptr(addr) {
-            Ok(p) => unsafe { *(p as *const u64) },
-            Err(_) => return 0,
+    for level in 0..8_usize {
+        // Slot id for this level, decoded from the proof's slot map (4 bits per
+        // level). Runtime data — the resulting address is not a constant.
+        let slot = ((slot_map >> (level * 4)) & 0x7) as usize;
+        let addr = arena_base + slot * size_of::<u64>();
+
+        // Resolve the node id to its address through the cold resolver, then
+        // reconstruct the pointer and read the sibling hash.
+        let sibling = match cold_resolve_node(addr) {
+            Ok(p) => unsafe { *with_exposed_provenance::<u64>(p) },
+            Err(_) => return false,
         };
 
-        let bit = (path_bits >> i) & 1;
+        let bit = (path_bits >> level) & 1;
         current = if bit == 0 {
             hash_pair(current, sibling)
         } else {
             hash_pair(sibling, current)
         };
     }
-    current
+
+    current == committed_root
 }
 
 fn hash_pair(left: u64, right: u64) -> u64 {
@@ -83,9 +96,7 @@ fn hash_pair(left: u64, right: u64) -> u64 {
     h ^ (h >> 32)
 }
 
-// The #[cold] attribute tells LLVM this call is rare; LLVM then misoptimizes
-// the caller's match on the returned Result<usize, *const u8>.
 #[cold]
-fn cold_sibling_ptr(ptr: usize) -> Result<usize, *const u8> {
-    Ok(ptr)
+fn cold_resolve_node(addr: usize) -> Result<usize, *const u8> {
+    Ok(addr)
 }

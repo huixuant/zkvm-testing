@@ -32,23 +32,24 @@ pub fn main() {
     // pointer so a wrong sibling hash is read, producing an incorrect root
     // (or 0 if the Err branch is spuriously taken). The zkVM proof is valid
     // for the incorrect computation — a forged Merkle inclusion proof.
-    let (output, proof, io_device) = prove(
-        0xCAFE_BABE_1234_5678_u64,
+       let (output, proof, io_device) = prove(
+        0xA11C_E55A_7D3B_4F20_u64,
         0x01_u64, 0x02_u64, 0x03_u64, 0x04_u64,
         0x05_u64, 0x06_u64, 0x07_u64, 0x08_u64,
-        0b0101_0101_u64,
+        0x7654_3210_u64, 0b0101_0101_u64, 0xAF73_144E_668A_E4CA_u64
     );
     let is_valid = verify(
-        0xCAFE_BABE_1234_5678_u64,
+        0xA11C_E55A_7D3B_4F20_u64,
         0x01_u64, 0x02_u64, 0x03_u64, 0x04_u64,
         0x05_u64, 0x06_u64, 0x07_u64, 0x08_u64,
-        0b0101_0101_u64,
+        0x7654_3210_u64, 0b0101_0101_u64,  0xAF73_144E_668A_E4CA_u64,
         output,
         io_device.panic,
         proof,
     );
 
-    info!("computed root: {output:#018x}");
+    // info!("computed root: {output:#018x}");
+    info!("inclusion: {output}");
     info!("proof valid:   {is_valid}");
     // Bug: output differs from the true root; the zkVM proof is still valid,
     // so the verifier accepts a proof of an incorrect Merkle root.
