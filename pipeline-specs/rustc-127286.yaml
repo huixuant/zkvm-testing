@@ -1,0 +1,21 @@
+id: rustc-127286
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/127286
+
+buggy_toolchain: patch-127286   # ZEROOS_GUEST_TOOLCHAIN value: rustc in [1.70.0, 1.80.0) (e.g. the 1.79.0 tag,
+                                # LLVM 18.1.7) rebuilt with llvm.download-ci-llvm=false against an INSTRUMENTED
+                                # src/llvm-project; probe in PromoteMemoryToRegister.cpp rewriteSingleStoreAlloca.
+fixed_toolchain: default        # ZEROOS_GUEST_TOOLCHAIN unset => stock toolchain >= 1.80.0 (LLVM carries the
+                                # Mem2Reg fix) or < 1.70.0 (rustc never emits the triggering !noundef).
+
+opt_toggle: copt_level       # -Copt-level=0 disables (SROA/mem2reg never run). No co-required -C flag.
+bug_layer: llvm              # ENTIRE defect in LLVM mem2reg (rewriteSingleStoreAlloca + convertMetadataToAssumes);
+                             # rustc emits correct IR. rustc #109035 is the trigger (adds !noundef), not the origin.
+riscv_triggering: verified   # VERIFY on riscv64imac before trusting negatives.
+
+instrumentation:
+  layer: llvm                                          # llvm/lib/Transforms/Utils/PromoteMemoryToRegister.cpp :: rewriteSingleStoreAlloca
+  pass: mem2reg-single-store-poison-nondominated-127286 # internal instrumentation label
+  signal: file                                         # C-side: fopen($MISCOMP_LOG,"a") + fprintf, guarded on getenv
+  env: MISCOMP_LOG                                     # set to a per-crate (ideally per-PID) log path before compiling
+  match: '^MISCOMP rustc-127286'                       # a fired detection

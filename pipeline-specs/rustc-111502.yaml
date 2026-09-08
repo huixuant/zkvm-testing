@@ -1,0 +1,17 @@
+id: rustc-111502
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/111502
+
+buggy_toolchain: patch-111502   # ZEROOS_GUEST_TOOLCHAIN value (1.71.0-nightly-era instrumented build, pre-#111517)
+fixed_toolchain: default        # ZEROOS_GUEST_TOOLCHAIN unset => stock guest toolchain (>= 1.71)
+
+opt_toggle: copt_level       # -Copt-level=0 disables (rustc query bails on OptLevel::No AND LLVM won't exploit). No surgical mir-opt-level alt.
+bug_layer: mir               # rustc MIR-analysis DEDUCES readonly + codegen EMITS the LLVM attr; LLVM EXPLOITS it. MIR itself is correct.
+riscv_triggering: verified   # VERIFY on riscv64imac before trusting negatives.
+
+instrumentation:
+  layer: mir                                        # signal emitted at the rustc MIR-analysis layer (deduce_param_attrs); miscompile realised in LLVM
+  pass: readonly-addrof-const-unsound-111502        # internal instrumentation label
+  signal: file                                      # appends to the file named by $env
+  env: MISCOMP_LOG                                  # set to a per-crate log path before compiling
+  match: '^MISCOMP rustc-111502'                    # a fired detection

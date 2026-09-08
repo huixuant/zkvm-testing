@@ -1,0 +1,27 @@
+id: rustc-131195
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/131195
+
+buggy_toolchain: patch-131195               # ZEROOS_GUEST_TOOLCHAIN value (guard reverted + instrumented)
+fixed_toolchain: default                     # ZEROOS_GUEST_TOOLCHAIN unset => stock guest toolchain
+
+opt_toggle: mir_opt_level
+bug_layer: mir
+riscv_triggering: verified  
+
+instrumentation:
+  layer: mir                                   # rustc MIR pass (JumpThreading)
+  pass: jumpthreading-not-nonbool-131195       # the instrumented pass (internal label)
+  signal: file                                 # appends to the file named by $env
+  env: MISCOMP_LOG                             # set to a per-crate log path before compiling
+  match: '^MISCOMP rustc-131195 triggered'     # a fired detection
+
+mir_opt_toggle:
+  build_rs: /home/hxt25/msc-ip/zeroos-local/crates/zeroos-build/src/cmds/build.rs
+  flag_line_marker: 'PIPELINE_TOGGLE_rustc-131195'   # COMMENTED => buggy (pass runs); UNCOMMENTED => normal
+  jolt_dir: /home/hxt25/msc-ip/jolt
+  rebuild_cmd: 'cargo install --path .'
+  buggy_state: uncommented # deprecated
+  mode: value
+  buggy_value: 2
+  normal_value: 0

@@ -1,0 +1,17 @@
+id: rustc-150904
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/150904
+
+buggy_toolchain: ded5c06cf2-rustc   # ZEROOS_GUEST_TOOLCHAIN value (rustc 1.92.0, miscompiles at -O)
+fixed_toolchain: default            # ZEROOS_GUEST_TOOLCHAIN unset => stock guest toolchain
+
+opt_toggle: copt_level
+bug_layer: mir
+riscv_triggering: verified     # confirmed to trigger on riscv64imac
+
+instrumentation:
+  layer: mir                              # rustc MIR pass (inlining / bool bitwise-assign)
+  pass: bool-bitassign-inline-miscompile-150904   # the instrumented pass (your internal label)
+  signal: file                            # appends to the file named by $env
+  env: MISCOMP_LOG                        # set this to a per-crate log path before compiling
+  match: '^MISCOMP rustc-150904 triggered' # a fired detection

@@ -1,0 +1,22 @@
+id: rustc-135941
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/135941
+
+buggy_toolchain: patch-135941   # ZEROOS_GUEST_TOOLCHAIN value: rustc built against an INSTRUMENTED LLVM
+                                # checkout in the 66badf2..fix window (e.g. LLVM 6fe0fc), probe in
+                                # ValueTracking.cpp isImpliedCondICmps.
+fixed_toolchain: default        # ZEROOS_GUEST_TOOLCHAIN unset => stock guest toolchain whose LLVM either
+                                # predates 66badf2 or postdates the LLVM-side samesign fix.
+
+opt_toggle: copt_level       # -Copt-level=0 disables (LLVM never runs the exploiting passes). CO-REQUIRED trigger:
+                             # -Coverflow-checks=yes (creates the sub-nsw IR shape) + the `--release` profile.
+                             # No rustc-side gate exists; this is an LLVM-pipeline + IR-shape gate.
+bug_layer: llvm              # ENTIRE defect in LLVM ValueTracking (isImpliedCondICmps); rustc emits correct IR.
+riscv_triggering: verified   # VERIFY on riscv64imac before trusting negatives.
+
+instrumentation:
+  layer: llvm                                          # llvm/lib/Analysis/ValueTracking.cpp :: isImpliedCondICmps
+  pass: samesign-nswsub-implication-unsound-135941     # internal instrumentation label
+  signal: file                                         # C-side: fopen($MISCOMP_LOG,"a") + fprintf, guarded on getenv
+  env: MISCOMP_LOG                                     # set to a per-crate (ideally per-PID) log path before compiling
+  match: '^MISCOMP rustc-135941'                       # a fired detection

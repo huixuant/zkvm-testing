@@ -1,0 +1,18 @@
+id: rustc-137646
+
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/137646
+
+buggy_toolchain: patch-137646  # ZEROOS_GUEST_TOOLCHAIN value (an LLVM that mis-deduces readonly, e.g. 1.85.0-era)
+fixed_toolchain: default            # ZEROOS_GUEST_TOOLCHAIN unset => stock guest toolchain
+
+opt_toggle: copt_level
+bug_layer: llvm
+riscv_triggering: verified         # VERIFY on riscv64imac before trusting negatives
+
+instrumentation:
+  layer: llvm                             # LLVM codegen (readonly attribute on virtual call), NOT mir
+  pass: readonly-virtual-call-miscompile-137646   # your internal instrumentation label
+  signal: file                            # appends to the file named by $env
+  env: MISCOMP_LOG                        # set this to a per-crate log path before compiling
+  match: '^MISCOMP rustc-137646 triggered' # a fired detection; 

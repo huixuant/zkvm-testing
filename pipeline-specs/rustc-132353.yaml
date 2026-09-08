@@ -1,0 +1,17 @@
+id: rustc-132353
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/132353
+
+buggy_toolchain: patch-132353   # ZEROOS_GUEST_TOOLCHAIN value (1.84.0-nightly-era instrumented build, pre-#132527)
+fixed_toolchain: default           # ZEROOS_GUEST_TOOLCHAIN unset => stock guest toolchain (>= 1.88 or <= 1.82)
+
+opt_toggle: copt_level       # -Copt-level=0 disables (via mir-opt-level < 2). Surgical alt: -Zmir-opt-level=1.
+bug_layer: mir               # emitted AND exploited entirely within rustc's MIR GVN pass; LLVM uninvolved
+riscv_triggering: verified   # VERIFY on riscv64imac before trusting negatives.
+  
+instrumentation:
+  layer: mir                                        # rustc_mir_transform/src/gvn.rs (run_pass assignment closure)
+  pass: gvn-nonlocal-deref-unsound-132353           # internal instrumentation label
+  signal: file                                      # appends to the file named by $env
+  env: MISCOMP_LOG                                  # set to a per-crate log path before compiling
+  match: '^MISCOMP rustc-132353'                    # a fired detection

@@ -1,0 +1,17 @@
+id: rustc-147265
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/147265
+
+buggy_toolchain: 1159e78c47-rustc   # ZEROOS_GUEST_TOOLCHAIN value (1.90.0-era instrumented build)
+fixed_toolchain: default        # ZEROOS_GUEST_TOOLCHAIN unset => stock guest toolchain (>= 1.91 or pre-1.90)
+
+opt_toggle: copt_level
+bug_layer: llvm         # pattern emitted by rustc cg_ssa; exploited by LLVM
+riscv_triggering: verified    # VERIFY on riscv64imac before trusting negatives.
+
+instrumentation:
+  layer: llvm                                      # rustc_codegen_ssa/src/mir/rvalue.rs, NOT llvm, NOT mir
+  pass: int-to-ptr-transmute-noprovenance-147265   # internal instrumentation label
+  signal: file                                     # appends to the file named by $env
+  env: MISCOMP_LOG                                 # set to a per-crate log path before compiling
+  match: '^MISCOMP rustc-147265 triggered'         # a fired detection

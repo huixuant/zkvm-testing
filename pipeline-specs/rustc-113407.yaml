@@ -1,0 +1,26 @@
+id: rustc-113407
+upstream:
+  rust_issue: https://github.com/rust-lang/rust/issues/113407
+
+buggy_toolchain: patch-113407   # ZEROOS_GUEST_TOOLCHAIN value (1.72.0-nightly-era instrumented build, pre-#113843)
+fixed_toolchain: default        # ZEROOS_GUEST_TOOLCHAIN unset => stock guest toolchain (>= 1.72 with the apfloat fix)
+
+opt_toggle: mir_opt_level    # -Zmir-opt-level gates the const-fold (>=2 folds via apfloat, =1 does not). Two-phase arm.
+bug_layer: others              # const-eval interpreter / apfloat primitive mis-narrows a subnormal f64->f32 at COMPILE time. No MIR-substitution, no LLVM step.
+riscv_triggering: verified     # VERIFY on riscv64imac before trusting negatives.
+
+instrumentation:
+  layer: ctfe                                       # signal emitted at the const-eval interpreter layer (apfloat cast primitive); miscompile IS the folded constant
+  pass: subnormal-f64-f32-cast-ctfe-113407          # internal instrumentation label
+  signal: file                                      # appends to the file named by $env
+  env: MISCOMP_LOG                                  # set to a per-crate log path before compiling
+  match: '^MISCOMP rustc-113407'                    # a fired detection
+  
+mir_opt_toggle:
+  build_rs: /home/hxt25/msc-ip/zeroos-local/crates/zeroos-build/src/cmds/build.rs   
+  flag_line_marker: PIPELINE_TOGGLE_rustc-113407  # unique substring on EXACTLY the one sentinel line (place at line end)
+  jolt_dir: /home/hxt25/msc-ip/jolt
+  rebuild_cmd: 'cargo install --path .'                                # PLACEHOLDER: optional explicit rebuild command; empty => pipeline default
+  mode: value                                      # rewrite the LEVEL number, not comment/uncomment
+  buggy_value: 2                                   # -Zmir-opt-level=2 : const-folds the cast via buggy apfloat (miscompiles)
+  normal_value: 1                                  # -Zmir-opt-level=1 : does NOT const-fold the cast (correct); explicit, since default >=2 still triggers
