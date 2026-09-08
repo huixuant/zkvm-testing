@@ -1,0 +1,38 @@
+[package]
+name = "guest"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+guest = []
+
+# The binary (src/main.rs) is `#![no_main]` and only defines `main` under the
+# `guest` feature (the macro emits it for the RISC-V build). Gate it so a host
+# `cargo build` of the whole workspace skips it instead of failing to link;
+# `jolt build` always passes `--features guest`, so the ELF is still produced.
+[[bin]]
+name = "guest"
+path = "src/main.rs"
+required-features = ["guest"]
+
+[dependencies]
+# Pinned to THIS local Jolt checkout (not git a16z/jolt) so the guest runtime,
+# the host prover, and the installed `jolt` CLI are all the exact same version.
+jolt = { package = "jolt-sdk", path = "/home/hxt25/msc-ip/jolt/jolt-sdk", default-features = false, features = [
+  # The lifted body links guest/src/malloc.c, whose malloc/free are provided by
+  # the Jolt runtime under this feature (jolt-platform/malloc-shim).
+  "malloc-shim",
+] }
+
+# The provable signature takes/returns `Vec<u8>`. In a no_std guest, postcard
+# needs its `alloc` feature to (de)serialize `Vec` (this also turns on
+# `serde/alloc`). Without it the guest fails to compile, not at runtime.
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+
+# Cross-compiles guest/src/malloc.c to the guest target for the extern "C" calls
+# in the lifted body. Host-side C toolchain only; identical across both arms.
+[build-dependencies]
+cc = "1.2"
+
+[package.metadata.cargo-machete]
+ignored = ["cc"]

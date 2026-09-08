@@ -1,0 +1,6 @@
+program:          malloc
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              ec9d234af0651c006839b86a926d3658157c3c04
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T21:30:47Z
