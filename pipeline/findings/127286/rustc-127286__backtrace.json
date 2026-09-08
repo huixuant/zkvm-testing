@@ -1,0 +1,24 @@
+{
+  "issue": "rustc-127286",
+  "spec": "specs/rustc-127286.yaml",
+  "program": "backtrace",
+  "toolchain": {
+    "buggy": "patch-127286"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 1,
+  "reachable_count": 251,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "alloc::raw_vec::RawVecInner<A>::deallocate"
+  ],
+  "fired_and_reachable": [
+    "alloc::raw_vec::RawVecInner<A>::deallocate"
+  ],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_divergence",
+  "notes": "fault fired and a fired function was reachable; 9 input(s) ran to a result on both arms with no difference (3 panicked on both, skipped). Consider richer/steered inputs.",
+  "ts": "2026-08-30T17:33:04Z"
+}

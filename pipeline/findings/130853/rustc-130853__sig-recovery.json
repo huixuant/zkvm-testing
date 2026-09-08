@@ -1,0 +1,37 @@
+{
+  "issue": "rustc-130853",
+  "spec": "specs/rustc-130853.yaml",
+  "program": "sig-recovery",
+  "toolchain": {
+    "buggy": "patch-132353"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 16,
+  "reachable_count": 1304,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "alloy_consensus::block::block_rlp::_#1::{impl#0}::encode",
+    "alloy_consensus::block::block_rlp::_#1::{impl#1}::_alloy_rlp_payload_length",
+    "alloy_consensus::block::block_rlp::_#1::{impl#1}::_alloy_rlp_payload_length::{closure#0}",
+    "alloy_eips::eip7623::tokens_in_calldata::{closure#0}",
+    "alloy_eips::eip7892::{impl#0}::active_scheduled_params_at_timestamp::{closure#0}",
+    "bitvec::ptr::proxy::{impl#8}::eq",
+    "bitvec::ptr::proxy::{impl#9}::eq",
+    "generic_array::hex::{impl#0}::fmt::{closure#1}",
+    "generic_array::hex::{impl#0}::fmt::{closure#2}",
+    "generic_array::hex::{impl#1}::fmt::{closure#1}",
+    "generic_array::hex::{impl#1}::fmt::{closure#2}",
+    "serde_json::value::partial_eq::{impl#56}::eq",
+    "tracing_core::field::{impl#40}::field::{closure#1}",
+    "tracing_core::field::{impl#47}::contains::{closure#0}",
+    "tracing_core::field::{impl#47}::len::{closure#0}",
+    "tracing::field::{impl#1}::as_field"
+  ],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_reachable_fired",
+  "notes": "no function is simultaneously reachable-from-harness AND fired MISCOMP (fired∩reachable empty); Stage 3 skipped.",
+  "ts": "2026-08-29T21:25:35Z"
+}

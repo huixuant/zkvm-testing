@@ -1,0 +1,41 @@
+{
+  "issue": "rustc-150904",
+  "spec": "specs/rustc-150904.yaml",
+  "program": "sig-recovery",
+  "toolchain": {
+    "buggy": "ded5c06cf2-rustc"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 20,
+  "reachable_count": 1287,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "alloy_trie::hash_builder::HashBuilder::<K>::log_key_value",
+    "alloy_trie::hash_builder::HashBuilder::<K>::resize_masks",
+    "alloy_trie::proof::retainer::AddedRemovedKeysTracking::track_branch",
+    "alloy_trie::proof::retainer::AddedRemovedKeysTracking::track_nontarget",
+    "alloy_trie::proof::retainer::ProofRetainer::<K>::retain_branch_proof",
+    "alloy_trie::proof::retainer::ProofRetainer::<K>::retain_extension_proof",
+    "alloy_trie::proof::retainer::ProofRetainer::<K>::retain_unchecked",
+    "bitvec::mem::elts",
+    "<bitvec::slice::iter::SplitInclusive<'a, T, O, P> as core::iter::DoubleEndedIterator>::next_back",
+    "<bitvec::slice::iter::SplitInclusiveMut<'a, T, O, P> as core::iter::DoubleEndedIterator>::next_back",
+    "<bitvec::vec::iter::Drain<'_, T, O> as core::ops::Drop>::drop",
+    "<bitvec::vec::iter::Splice<'_, T, O, I> as core::ops::Drop>::drop",
+    "bytemuck::internal::try_cast_slice",
+    "bytemuck::internal::try_cast_slice_mut",
+    "hashbrown::control::bitmask::BitMask::nonzero_trailing_zeros",
+    "hashbrown::control::bitmask::BitMask::trailing_zeros",
+    "rand_core::impls::fill_via_chunks",
+    "ruint::bits::<impl ruint::Uint<BITS, LIMBS>>::most_significant_bits",
+    "serde_core::de::value::MapDeserializer::<'de, I, E>::end",
+    "serde_core::de::value::SeqDeserializer::<I, E>::end"
+  ],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_reachable_fired",
+  "notes": "no function is simultaneously reachable-from-harness AND fired MISCOMP (fired∩reachable empty); Stage 3 skipped.",
+  "ts": "2026-09-03T21:01:00Z"
+}

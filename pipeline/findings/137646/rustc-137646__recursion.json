@@ -1,0 +1,20 @@
+{
+  "issue": "rustc-137646",
+  "spec": "specs/rustc-137646.yaml",
+  "program": "recursion",
+  "toolchain": {
+    "buggy": "patch-137646"
+  },
+  "stage1_fired": false,
+  "stage1_fired_count": null,
+  "reachable_count": null,
+  "stage3_diverged": false,
+  "fired_functions": [],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "build_failed",
+  "notes": "porter declared unbuildable after 1 attempt(s): The `recursion` program is a Jolt-verifier-in-guest benchmark that is inherently std/musl-only and cannot be built for the no_std template (riscv64imac-unknown-none-elf). Three independent hard blockers: (1) Its guest crate depends on jolt-sdk with `guest-verifier`, and in jolt-sdk/Cargo.toml `guest-verifier = [\"guest-std\", \"dep:common\", \"jolt-core/minimal\"]` — it transitively FORCES `guest-std` (zeroos-runtime-musl, postcard/use-std, serde/std) and `jolt-core/minimal = [\"ark-ec/std\", \"ark-ff/std\", \"ark-std/std\", \"ark-ff/asm\", \"rayon\"]`, i.e. std-enabled arkworks plus rayon threads. There is no `guest-verifier`-equivalent no_std feature, and setting default-features=false cannot help because std is required by the feature itself, not by a default. (2) The guest's own source deliberately disables no_std (`// #![cfg_attr(feature = \"guest\", no_std)]` is commented out) and the authoritative host sets `program.set_std(true)`; the lifted body uses `std::io::Cursor` plus the additional jolt-sdk features `thread` (cooperative scheduler) and `random` (OS/LCG entropy), both explicitly barred in a no_std deterministic guest. Making it build would require switching the template to std/musl mode, which is forbidden as it changes the study target. (3) Even setting the toolchain aside, the lifted body is not self-contained source: it `include!`s `src/embedded_bytes.rs` and `src/provable_macro.rs`, which do not exist in the corpus tree — they are generated at run time by the discarded host (`generate_provable_macro` / `generate_embedded_bytes`) only after a full prove run, and the generated `#[jolt::provable]` config (heap_size 33554432, max_input_size 2000000) is incompatible with the frozen template attribute line, which must not be edited. The computation itself (deserialize a JoltVerifierPreprocessing + N proofs and run the Jolt verifier) is an essential-std hot path with no core/alloc equivalent. No files were modified.",
+  "ts": "2026-08-28T18:50:12Z"
+}

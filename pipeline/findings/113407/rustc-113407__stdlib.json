@@ -1,0 +1,24 @@
+{
+  "issue": "rustc-113407",
+  "spec": "specs/rustc-113407.yaml",
+  "program": "stdlib",
+  "toolchains": {
+    "buggy": "patch-113407",
+    "fixed": "default"
+  },
+  "stage1_fired": false,
+  "stage1_fired_count": null,
+  "stage2_mir_diff_functions": null,
+  "stage3_diverged": false,
+  "candidate_fn": "",
+  "candidate_selected_by": "",
+  "fired_functions": [],
+  "mir_diff_functions_names": [],
+  "fired_and_mir_differ": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "pass_not_fired",
+  "notes": "instrumentation did not fire for this program",
+  "ts": "2026-08-18T17:51:02Z"
+}

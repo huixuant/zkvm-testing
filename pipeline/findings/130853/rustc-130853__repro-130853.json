@@ -1,0 +1,24 @@
+{
+  "issue": "rustc-130853",
+  "spec": "specs/rustc-130853.yaml",
+  "program": "repro-130853",
+  "toolchain": {
+    "buggy": "patch-132353"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 1,
+  "reachable_count": 251,
+  "stage3_diverged": true,
+  "fired_functions": [
+    "guest::state_changed"
+  ],
+  "fired_and_reachable": [
+    "guest::state_changed"
+  ],
+  "buggy_output": "OK:output=000bb000|panic=false|reached=unknown",
+  "fixed_output": "OK:output=e01ca100|panic=false|reached=unknown",
+  "proof": "not_attempted",
+  "verdict": "confirmed_miscompile",
+  "notes": "kind=value-divergence; {\"root_cause\":\"Pre-#133474 MIR GVN unifies two dereferences of a shared reference to a Freeze pointee even when that reference was loaded out of memory rather than retagged; here the second `**cell` read in `guest::state_changed` is value-numbered equal to the first across the intervening opaque store through the aliasing `STATE_PORT` raw pointer, the change-detector collapses to `const false`, and `settle_batch` returns cached_root 0x00B00B00 instead of applied_root 0x00A11CE0. Attribution is on the version-constant axis and is structurally clean: under this spec's `opt_toggle: copt_level` BOTH Stage-3 arms are built with the same buggy toolchain `patch-132353` and differ only in JOLT_GUEST_OPT (0 vs 3), so the divergence observed IS the O0-correct / O3-wrong localisation, and `state_changed` is the only site in the guest crate matching the refined nested-deref predicate (a `&&u8` whose inner reference is itself obtained by a deref) — consistent with the prior full-pipeline run, which recorded Stage-1 fired = `guest::state_changed` and a single Stage-2 differing function `state_changed`. Two honesty caveats for the human. First, I could not execute anything this session (build/run commands were denied), so `stable: true` rests on the emulator's determinism, on the divergence being materialised as a compile-time constant with no runtime/timing/address channel, and on a second independent full-pipeline run two weeks earlier producing byte-identical outputs (000bb000 buggy / e01ca100 normal) — not on repetitions I performed myself; the fired-function list and MIR dumps for THIS run were in temp dirs already cleaned up, so the MIR text above is the recorded Stage-2 evidence of that earlier, identical run rather than a fresh dump. Second, this repro reaches the fault via `&*addr_of!(STATE_PORT).cast::<&u8>()`, which the spec itself flags as aliasing-contested; a Miri run under both stacked and tree borrows is still owed before this program is asserted to be a UB-free oracle.\",\"mir_explanation\":\"The fault is entirely inside `guest::state_changed`, whose body is `let before = **cell; apply_settlement(new_low); **cell != before` with `cell: &&u8`. Under the same (buggy) toolchain at -Copt-level=0, mir_opt_level stays below 2 so GVN never runs and both loads survive: the inner reference is re-fetched after the call (`_6 = deref_copy (*_1); _3 = copy (*_6)` before the call, `_7 = deref_copy (*_1); _5 = copy (*_7)` after it) and the comparison `Ne(move _5, copy _3)` is a real runtime test. At the triggering level the post-call reload and the comparison are gone and the block ends in `_0 = const false`. GVN's `simplify_place_value` accepted the `ProjectionElem::Deref` of the inner `&u8` into the value chain because it is a shared reference to a Freeze pointee, giving the pre-call and post-call `**cell` the same value number, after which `Ne(x, x)` const-folds. That inner `&u8` is not a retagged argument or a fresh borrow — it is loaded out of memory (`deref_copy (*_1)`, i.e. the `STATE_PORT` static reinterpreted via `&*addr_of!(STATE_PORT).cast::<&u8>()`), so the 'an immutable borrow always points to the same value' premise the branch relies on is never established across the `#[inline(never)]` `apply_settlement`, which stores to that exact byte through the aliasing raw port. One frame up, `settle_batch` keeps its `switchInt` with arms `applied_root` / `cached_root`, but the discriminant is now unconditionally false, so it always commits the stale cached root.\",\"proof_impact\":\"\"}",
+  "ts": "2026-08-29T17:42:04Z"
+}

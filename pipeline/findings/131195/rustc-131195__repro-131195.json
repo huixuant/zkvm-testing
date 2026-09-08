@@ -1,0 +1,24 @@
+{
+  "issue": "rustc-131195",
+  "spec": "specs/rustc-131195.yaml",
+  "program": "repro-131195",
+  "toolchain": {
+    "buggy": "patch-131195"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 1,
+  "reachable_count": 89,
+  "stage3_diverged": true,
+  "fired_functions": [
+    "guest::admit_member"
+  ],
+  "fired_and_reachable": [
+    "guest::admit_member"
+  ],
+  "buggy_output": "OK:output=00000000|panic=false|reached=unknown",
+  "fixed_output": "OK:output=2a000088|panic=false|reached=unknown",
+  "proof": "not_attempted",
+  "verdict": "confirmed_miscompile",
+  "notes": "kind=value-divergence; {\"root_cause\":\"rustc #131195: with the #131201 guard reverted, JumpThreading's `process_assign` propagates replacement conditions through `x = Not(c)` by inverting condition polarity, which is only valid when `c: bool`; for integer operands bitwise NOT does not map `== 0` and `!= 0` onto each other (`!1 == -2 != 0`), so a `switchInt` over `!c` with a dominating constant assignment to `c` inside MAX_BACKTRACK threads to the wrong successor. In `guest::admit_member` the `match profile` arms pin `reserved` to a concrete u32 mask on each incoming edge and the guard `if !reserved != 0` sits immediately downstream, giving exactly the fulfilling-constant + Not + switchInt shape the pass mishandles; the guard is silently rewritten to `reserved == 0`, so any partially-reserved profile is misread as fully reserved and a legitimate admission is refused. Attribution is on the version-constant axis, not a cross-version diff: both preserved arms carry `toolchain: patch-131195` in meta.txt and differ only in -Zmir-opt-level (0 => 2a000088 correct, 2 => 00000000 wrong), the Stage-1 instrumentation gate fired naming `guest::admit_member` (stage1.rc=0, fired_count=1), and Stage-2 reports exactly one MIR-differing function, `admit_member`, so fired ∩ mir-differs is the single function that carries the divergence. Stability caveat: live re-execution was unavailable to me in this sandbox, so I assert stability from two independent full runs 15 days apart producing byte-identical outputs on the sha1-identical input (40fe703f...: buggy 00000000, normal 2a000088 in both), reinforced by structure — `admit_member` is a pure function of the 12 decoded bytes with no clock/RNG/allocation/uninitialised-memory dependence under a deterministic emulator, and the mir-opt-level=2 MIR has no path from profile=1 to the grant block at all. A cheap human confirmation is to re-run both arms of the mir_opt_level toggle on this same input file.\",\"mir_explanation\":\"Holding the toolchain fixed at patch-131195, the -Zmir-opt-level=0 MIR of `admit_member` keeps the source shape: bb0 switches on `profile`, the four arms bb1..bb4 each assign a constant into `_4` (`reserved`) and all `goto -> bb5`, and bb5 computes `_6 = Not(move _7)`, `_5 = Ne(move _6, const 0_u32)`, then `switchInt(move _5)`. At -Zmir-opt-level=2 that guard has been deleted outright: bb1 (u32::MAX), bb2 (0x00FF_FFFF) and bb3 (0x0000_00FF) now each assign `_4` and `goto -> bb7`, which is `_0 = const 0_u32; return`, while only bb4 (`_4 = const 0_u32`) falls through to the admission code. That is JumpThreading walking back from `switchInt` over `!reserved`, transferring the replacement condition across `Rvalue::UnaryOp(UnOp::Not, ..)` by flipping polarity with `Condition::inv` — sound only for `bool` — so `!reserved != 0` was threaded as `reserved == 0` and every arm with a non-zero pinned constant was routed to the refuse block. It is not ordinary constant folding: a correct fold of `!0x0000_00FF != 0` gives `0xFFFF_FF00 != 0` = true and would have threaded profile 1 to the ADMIT block, the opposite successor. Hence profile=1 returns 0 (`output=00000000`) instead of the capability token 0x8800_002A (`output=2a000088`).\",\"proof_impact\":\"\"}",
+  "ts": "2026-08-29T22:21:23Z"
+}

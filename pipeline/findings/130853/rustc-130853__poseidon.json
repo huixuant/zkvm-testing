@@ -1,0 +1,28 @@
+{
+  "issue": "rustc-130853",
+  "spec": "specs/rustc-130853.yaml",
+  "program": "poseidon",
+  "toolchain": {
+    "buggy": "patch-132353"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 7,
+  "reachable_count": 464,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "generic_array::hex::{impl#0}::fmt::{closure#1}",
+    "generic_array::hex::{impl#0}::fmt::{closure#2}",
+    "generic_array::hex::{impl#1}::fmt::{closure#1}",
+    "generic_array::hex::{impl#1}::fmt::{closure#2}",
+    "lambdaworks_math::unsigned_integer::element::{impl#6}::fmt::{closure#0}",
+    "num_bigint::biguint::multiplication::mac3",
+    "sha3::left_encode::{closure#0}"
+  ],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_reachable_fired",
+  "notes": "no function is simultaneously reachable-from-harness AND fired MISCOMP (fired∩reachable empty); Stage 3 skipped.",
+  "ts": "2026-08-29T18:07:47Z"
+}

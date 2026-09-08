@@ -1,0 +1,20 @@
+{
+  "issue": "rustc-130853",
+  "spec": "specs/rustc-130853.yaml",
+  "program": "modinv",
+  "toolchain": {
+    "buggy": "patch-132353"
+  },
+  "stage1_fired": false,
+  "stage1_fired_count": null,
+  "reachable_count": null,
+  "stage3_diverged": false,
+  "fired_functions": [],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "pass_not_fired",
+  "notes": "instrumentation did not fire for this program",
+  "ts": "2026-08-29T19:45:47Z"
+}

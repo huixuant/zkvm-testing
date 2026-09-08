@@ -1,0 +1,24 @@
+{
+  "issue": "rustc-127286",
+  "spec": "specs/rustc-127286.yaml",
+  "program": "sha2-chain",
+  "toolchain": {
+    "buggy": "patch-127286"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 1,
+  "reachable_count": 286,
+  "stage3_diverged": true,
+  "fired_functions": [
+    "alloc::raw_vec::RawVecInner<A>::deallocate"
+  ],
+  "fired_and_reachable": [
+    "alloc::raw_vec::RawVecInner<A>::deallocate"
+  ],
+  "buggy_output": "OK:output=3f276fb60a477908b74abf2c626418e77dddf7879e8467bc29e3bae22631b5ee|panic=false|reached=unknown",
+  "fixed_output": "PANIC:\nthread 'main' (3415717) panicked at /home/hxt25/msc-ip/jolt/tracer/src/emulator/mmu.rs:208:17:\nStack overflow: attempted to write to 0x800119A0, which is in the stack canary region. Increase stack_size in MemoryConfig (currently 4096 bytes).\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+  "proof": "not_attempted",
+  "verdict": "confirmed_miscompile",
+  "notes": "kind=panic-divergence; {\"root_cause\":null,\"mir_explanation\":null,\"proof_impact\":null}",
+  "ts": "2026-08-30T23:17:55Z"
+}

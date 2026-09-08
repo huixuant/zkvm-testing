@@ -1,0 +1,33 @@
+{
+  "issue": "rustc-147265",
+  "spec": "specs/rustc-147265.yaml",
+  "program": "secp256k1-ecdsa-verify",
+  "toolchain": {
+    "buggy": "1159e78c47-rustc"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 8,
+  "reachable_count": 258,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "alloc::alloc::Global::alloc_impl",
+    "<alloc::alloc::Global as core::alloc::Allocator>::shrink",
+    "alloc::raw_vec::RawVecInner<A>::shrink_unchecked",
+    "alloc::raw_vec::RawVecInner<A>::try_allocate_in",
+    "alloc::str::join_generic_copy",
+    "<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter",
+    "<alloc::vec::Vec<T> as core::default::Default>::default",
+    "alloc::vec::Vec<T>::new"
+  ],
+  "fired_and_reachable": [
+    "alloc::alloc::Global::alloc_impl",
+    "alloc::raw_vec::RawVecInner<A>::try_allocate_in",
+    "alloc::vec::Vec<T>::new"
+  ],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_divergence",
+  "notes": "fault fired and a fired function was reachable; 17 input(s) ran to a result on both arms with no difference (2 panicked on both, skipped). Consider richer/steered inputs.",
+  "ts": "2026-08-27T10:48:51Z"
+}

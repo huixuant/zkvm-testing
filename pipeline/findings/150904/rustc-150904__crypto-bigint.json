@@ -1,0 +1,30 @@
+{
+  "issue": "rustc-150904",
+  "spec": "specs/rustc-150904.yaml",
+  "program": "crypto-bigint",
+  "toolchain": {
+    "buggy": "ded5c06cf2-rustc"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 9,
+  "reachable_count": 137,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "bytemuck::internal::try_cast_slice",
+    "bytemuck::internal::try_cast_slice_mut",
+    "crypto_bigint::ct_choice::CtChoice::from_lsb",
+    "crypto_bigint::limb::cmp::<impl core::cmp::Ord for crypto_bigint::limb::Limb>::cmp",
+    "crypto_bigint::uint::inv_mod::<impl crypto_bigint::uint::Uint<LIMBS>>::inv_odd_mod_bounded",
+    "crypto_bigint::uint::shr::<impl crypto_bigint::uint::Uint<LIMBS>>::shr_1",
+    "embedded_hal::pwm::SetDutyCycle::set_duty_cycle_fraction",
+    "serde_core::de::value::MapDeserializer::<'de, I, E>::end",
+    "serde_core::de::value::SeqDeserializer::<I, E>::end"
+  ],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_reachable_fired",
+  "notes": "no function is simultaneously reachable-from-harness AND fired MISCOMP (fired∩reachable empty); Stage 3 skipped.",
+  "ts": "2026-08-26T02:03:39Z"
+}

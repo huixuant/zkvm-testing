@@ -1,0 +1,26 @@
+{
+  "issue": "rustc-147265",
+  "spec": "specs/rustc-147265.yaml",
+  "program": "sha2-chain",
+  "toolchain": {
+    "buggy": "1159e78c47-rustc"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 2,
+  "reachable_count": 150,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "alloc::alloc::Global::alloc_impl",
+    "alloc::raw_vec::RawVecInner<A>::try_allocate_in"
+  ],
+  "fired_and_reachable": [
+    "alloc::alloc::Global::alloc_impl",
+    "alloc::raw_vec::RawVecInner<A>::try_allocate_in"
+  ],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_divergence",
+  "notes": "fault fired and a fired function was reachable; 26 input(s) ran to a result on both arms with no difference (1 panicked on both, skipped). Consider richer/steered inputs.",
+  "ts": "2026-08-27T11:18:22Z"
+}

@@ -1,0 +1,30 @@
+{
+  "issue": "rustc-150904",
+  "spec": "specs/rustc-150904.yaml",
+  "program": "random",
+  "toolchain": {
+    "buggy": "ded5c06cf2-rustc"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 7,
+  "reachable_count": 491,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "bytemuck::internal::try_cast_slice",
+    "bytemuck::internal::try_cast_slice_mut",
+    "rand_core::impls::fill_via_chunks",
+    "rand::seq::IteratorRandom::choose",
+    "rand::seq::IteratorRandom::choose_stable",
+    "serde_core::de::value::MapDeserializer::<'de, I, E>::end",
+    "serde_core::de::value::SeqDeserializer::<I, E>::end"
+  ],
+  "fired_and_reachable": [
+    "rand_core::impls::fill_via_chunks"
+  ],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_divergence",
+  "notes": "fault fired and a fired function was reachable; 10 input(s) ran to a result on both arms with no difference (2 panicked on both, skipped). Consider richer/steered inputs.",
+  "ts": "2026-09-03T20:14:52Z"
+}

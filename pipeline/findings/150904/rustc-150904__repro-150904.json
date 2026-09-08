@@ -1,0 +1,29 @@
+{
+  "issue": "rustc-150904",
+  "spec": "specs/rustc-150904.yaml",
+  "program": "repro-150904",
+  "toolchain": {
+    "buggy": "ded5c06cf2-rustc"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 6,
+  "reachable_count": 124,
+  "stage3_diverged": true,
+  "fired_functions": [
+    "bytemuck::internal::try_cast_slice",
+    "bytemuck::internal::try_cast_slice_mut",
+    "embedded_hal::pwm::SetDutyCycle::set_duty_cycle_fraction",
+    "guest::verify_lending_credential",
+    "serde_core::de::value::MapDeserializer::<'de, I, E>::end",
+    "serde_core::de::value::SeqDeserializer::<I, E>::end"
+  ],
+  "fired_and_reachable": [
+    "guest::verify_lending_credential"
+  ],
+  "buggy_output": "OK:output=89bf67f92d982326|panic=false|reached=unknown",
+  "fixed_output": "OK:output=0000000000000000|panic=false|reached=unknown",
+  "proof": "not_attempted",
+  "verdict": "confirmed_miscompile",
+  "notes": "kind=value-divergence; {\"root_cause\":null,\"mir_explanation\":null,\"proof_impact\":null}",
+  "ts": "2026-08-25T21:22:19Z"
+}

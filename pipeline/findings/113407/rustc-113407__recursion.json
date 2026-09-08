@@ -1,0 +1,24 @@
+{
+  "issue": "rustc-113407",
+  "spec": "specs/rustc-113407.yaml",
+  "program": "recursion",
+  "toolchains": {
+    "buggy": "patch-113407",
+    "fixed": "default"
+  },
+  "stage1_fired": false,
+  "stage1_fired_count": null,
+  "stage2_mir_diff_functions": null,
+  "stage3_diverged": false,
+  "candidate_fn": "",
+  "candidate_selected_by": "",
+  "fired_functions": [],
+  "mir_diff_functions_names": [],
+  "fired_and_mir_differ": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "build_failed",
+  "notes": "porter declared unbuildable after 1 attempt(s): The `recursion` benchmark's provable body IS the Jolt verifier: it deserializes a JoltVerifierPreprocessing + RV64IMACProof + JoltDevice via ark-serialize and runs RV64IMACVerifier::verify(). Lifting that body unavoidably pulls in `jolt-core`, which has no no_std path: jolt-core/src has zero `#![no_std]`/`cfg_attr(..., no_std)` attributes and ~hundreds of `use std::` sites in the verifier hot path (58 in zkvm/ alone), and its own Cargo.toml documents the exact feature the guest needs -- `# jolt-core needs std and rayon to compile, so these are the minimal set of features.` / `minimal = [\"ark-ec/std\", \"ark-ff/std\", \"ark-std/std\", \"ark-ff/asm\", \"rayon\"]`. jolt-core additionally depends unconditionally on `rayon` (OS threads), `rand` with features `std`+`std_rng` (OS entropy), `postcard/use-std`, and `clap`; none of these are feature-gated off. Correspondingly, jolt-sdk gates the API this program uses behind `guest-verifier = [\"guest-std\", \"dep:common\", \"jolt-core/minimal\"]`, where `guest-std` = `zeroos-std` = `zeroos-runtime-musl` -- i.e. the verifier is only offered in std/musl guest mode, never in `guest-nostd`/`zeroos-runtime-nostd`. The upstream host confirms this: `program.set_std(true)` for recursion-guest (vs `set_std(false)` for the fibonacci/muldiv inner guests), and the guest crate additionally requests jolt-sdk features `thread` (zeroos cooperative scheduler) and `random` (zeroos RNG). The frozen template builds no_std for riscv64imac-unknown-none-elf, and forcing this port would require switching the template to std/musl mode -- explicitly disallowed, as it changes the study target. This is essential-OS std in the hot path (threads + entropy + a non-no_std dependency), not scaffolding std or dependency-default std, so no feature-flag or alloc-repoint fix exists. Ported nothing; guest tree left byte-identical to the frozen template. Note also that the two secondary blockers are structural, not just dependency-level: the benchmark's body depends on build-script-generated `src/embedded_bytes.rs` and `src/provable_macro.rs` (the latter emits its own `#[jolt::provable(...)]` with max_input_size=4096/heap_size=33554432/max_trace_length=16777216), which conflicts with the frozen harness attribute, and a real proof blob is orders of magnitude larger than the harness input budget.",
+  "ts": "2026-08-18T17:28:05Z"
+}

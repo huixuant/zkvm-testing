@@ -1,0 +1,24 @@
+{
+  "issue": "rustc-111502",
+  "spec": "specs/rustc-111502.yaml",
+  "program": "repro-111502",
+  "toolchain": {
+    "buggy": "patch-111502"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 1,
+  "reachable_count": 262,
+  "stage3_diverged": true,
+  "fired_functions": [
+    "guest::recompute_and_decide"
+  ],
+  "fired_and_reachable": [
+    "guest::recompute_and_decide"
+  ],
+  "buggy_output": "OK:output=8813000000000080|panic=false|reached=unknown",
+  "fixed_output": "OK:output=0000000000000000|panic=false|reached=unknown",
+  "proof": "not_attempted",
+  "verdict": "confirmed_miscompile",
+  "notes": "kind=value-divergence; {\"root_cause\":null,\"mir_explanation\":null,\"proof_impact\":null}",
+  "ts": "2026-08-31T13:28:23Z"
+}

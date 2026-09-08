@@ -1,0 +1,26 @@
+{
+  "issue": "rustc-150904",
+  "spec": "specs/rustc-150904.yaml",
+  "program": "collatz",
+  "toolchain": {
+    "buggy": "ded5c06cf2-rustc"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 5,
+  "reachable_count": 125,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "bytemuck::internal::try_cast_slice",
+    "bytemuck::internal::try_cast_slice_mut",
+    "embedded_hal::pwm::SetDutyCycle::set_duty_cycle_fraction",
+    "serde_core::de::value::MapDeserializer::<'de, I, E>::end",
+    "serde_core::de::value::SeqDeserializer::<I, E>::end"
+  ],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_reachable_fired",
+  "notes": "no function is simultaneously reachable-from-harness AND fired MISCOMP (fired∩reachable empty); Stage 3 skipped.",
+  "ts": "2026-08-25T22:30:17Z"
+}

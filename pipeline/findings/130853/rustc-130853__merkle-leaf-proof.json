@@ -1,0 +1,25 @@
+{
+  "issue": "rustc-130853",
+  "spec": "specs/rustc-130853.yaml",
+  "program": "merkle-leaf-proof",
+  "toolchain": {
+    "buggy": "patch-132353"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 4,
+  "reachable_count": 535,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "generic_array::hex::{impl#0}::fmt::{closure#1}",
+    "generic_array::hex::{impl#0}::fmt::{closure#2}",
+    "generic_array::hex::{impl#1}::fmt::{closure#1}",
+    "generic_array::hex::{impl#1}::fmt::{closure#2}"
+  ],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_reachable_fired",
+  "notes": "no function is simultaneously reachable-from-harness AND fired MISCOMP (fired∩reachable empty); Stage 3 skipped.",
+  "ts": "2026-08-29T17:58:47Z"
+}

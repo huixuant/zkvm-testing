@@ -1,0 +1,38 @@
+{
+  "issue": "rustc-147265",
+  "spec": "specs/rustc-147265.yaml",
+  "program": "sig-recovery",
+  "toolchain": {
+    "buggy": "1159e78c47-rustc"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 10,
+  "reachable_count": 1037,
+  "stage3_diverged": false,
+  "fired_functions": [
+    "alloc::alloc::Global::alloc_impl",
+    "<alloc::alloc::Global as core::alloc::Allocator>::shrink",
+    "alloc::raw_vec::RawVecInner<A>::shrink_unchecked",
+    "alloc::raw_vec::RawVecInner<A>::try_allocate_in",
+    "alloc::vec::into_iter::IntoIter<T,A>::forget_allocation_drop_remaining",
+    "<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter",
+    "<alloc::vec::Vec<T> as alloy_rlp::decode::Decodable>::decode",
+    "<alloc::vec::Vec<T> as core::default::Default>::default",
+    "bitvec::ptr::span::BitSpan<M,T,O>::new",
+    "indexmap::map::IndexMap<K,V,S>::with_capacity_and_hasher"
+  ],
+  "fired_and_reachable": [
+    "alloc::alloc::Global::alloc_impl",
+    "<alloc::alloc::Global as core::alloc::Allocator>::shrink",
+    "alloc::raw_vec::RawVecInner<A>::shrink_unchecked",
+    "alloc::raw_vec::RawVecInner<A>::try_allocate_in",
+    "<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter",
+    "<alloc::vec::Vec<T> as alloy_rlp::decode::Decodable>::decode"
+  ],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "no_divergence",
+  "notes": "fault fired and a fired function was reachable; 10 input(s) ran to a result on both arms with no difference (0 panicked on both, skipped). Consider richer/steered inputs.",
+  "ts": "2026-08-27T23:29:08Z"
+}

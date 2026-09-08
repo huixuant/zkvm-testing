@@ -1,0 +1,20 @@
+{
+  "issue": "rustc-135941",
+  "spec": "specs/rustc-135941.yaml",
+  "program": "advice-demo",
+  "toolchain": {
+    "buggy": "patch-135941"
+  },
+  "stage1_fired": false,
+  "stage1_fired_count": null,
+  "reachable_count": null,
+  "stage3_diverged": false,
+  "fired_functions": [],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "pass_not_fired",
+  "notes": "instrumentation did not fire for this program",
+  "ts": "2026-08-28T22:03:53Z"
+}

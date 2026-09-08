@@ -1,0 +1,24 @@
+{
+  "issue": "rustc-137646",
+  "spec": "specs/rustc-137646.yaml",
+  "program": "repro-137646",
+  "toolchain": {
+    "buggy": "patch-137646"
+  },
+  "stage1_fired": true,
+  "stage1_fired_count": 1,
+  "reachable_count": 258,
+  "stage3_diverged": true,
+  "fired_functions": [
+    "ledger::Settler::validate"
+  ],
+  "fired_and_reachable": [
+    "ledger::Settler::validate"
+  ],
+  "buggy_output": "OK:audit: credit=1 from=7 to=9\ncommit: credit=1000000\noutput=28460f00|panic=false|reached=unknown",
+  "fixed_output": "OK:audit: credit=1 from=7 to=9\ncommit: credit=1\noutput=e9030000|panic=false|reached=unknown",
+  "proof": "not_attempted",
+  "verdict": "confirmed_miscompile",
+  "notes": "kind=value-divergence; {\"root_cause\":\"Hypothesis: on toolchain patch-137646 at -Copt-level>=1, LLVM wrongly infers the `readonly` parameter attribute for the indirectly-passed by-value Tx argument of the dyn-dispatched Settler::validate, generalising from the trait's read-only default body, and applies it at the virtual call site where the actual callee (impl Settler for ()) writes its copy; the by-value copy is elided and the callee's normalisation `tx.credit *= 1_000_000` corrupts the caller's record, so the committed credit becomes declared*1_000_000 instead of declared. Attribution used the version-constant axis only — both arms hold ZEROOS_GUEST_TOOLCHAIN=patch-137646 and differ solely in JOLT_GUEST_OPT (3 -> wrong 28460f00, 0 -> correct e9030000); no cross-version MIR diff was used, and Stage-2's empty differing-function list is expected for bug_layer=llvm rather than exculpatory. The fault lands on the Stage-1 fired function `Settler::validate`, which is also confirmed reachable from guest::main::__jolt_guest_harness in this run's callgraph (`<() as ledger::Settler>::validate` in reachable.out), and the divergence is the exact numeric signature of that function's body (a factor of BASE_UNIT_SCALE), so the fired-function attribution is tight rather than circumstantial. CAVEAT FOR THE HUMAN: cargo/host invocation is not permitted in this session, so I could not execute N back-to-back re-runs; `stable: true` rests on two independent observations 18 days apart (2026-08-10 recorded card and this 2026-08-28 run) producing byte-identical output 28460f00 on this exact input, on a deterministic emulator with no entropy source, plus the within-run self-consistency of the guest's own stdout (`audit: credit=1` before the virtual call, `commit: credit=1000000` after) — re-running the pair 3x on this input would settle it definitively, and I left /home/hxt25/msc-ip/jolt/pipeline/.triage-137646/run.sh as the exact toggle to do so. Likewise no prove+verify result was supplied (proof: not_attempted), so no zkVM soundness claim is made; if prove=valid on the buggy build, that would mean a valid Jolt proof exists for the forged 1_001_000 balance.\",\"mir_explanation\":\"This is an LLVM codegen fault, not a MIR transform, so Stage-2 correctly reports 0 differing MIR functions; the decisive artifact is the emitted RISC-V. In the baseline (opt-level 0) guest ELF captured for this run, ledger::settle materialises THREE distinct 12-byte stack temporaries from the caller's Tx — s0-64 for audit_record, s0-48 for the vtable call, s0-32 for commit_credit — and passes a1 = s0-48 to the indirect call (jalr a2 at 0x80006390), while <() as ledger::Settler>::validate at 0x800062e6 does lw a0,0(a1) / mulw a0,a0,1000000 / sw a0,0(a1), i.e. it writes back through the incoming pointer. Because Tx is 12 bytes it is passed indirectly by ABI, so correctness rests entirely on the caller materialising that fresh s0-48 copy; at O0 the callee's store lands in the temporary and commit_credit re-copies from the untouched original at -72(s0), yielding credit=1. At -Copt-level>=1 LLVM deduces `readonly` for that indirect by-value parameter from the trait's DEFAULT body (which only reads tx.credit through a shared borrow), and that attribute reaches the virtual call site, licensing call-slot/copy-forwarding to delete the s0-48 copy and hand the callee a pointer to the caller's own record. The concrete impl Settler for () — the dynamic callee, which actually writes — then stores 1_000_000 straight into the caller's Tx, and because println! captures &tx.credit and hands it to an opaque non-inlined formatter, commit_credit performs a genuine reload of the now-corrupted slot rather than reusing a pre-call register, making the mutation observable as the committed credit.\",\"proof_impact\":\"\"}",
+  "ts": "2026-08-28T15:45:46Z"
+}

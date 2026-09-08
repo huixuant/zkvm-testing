@@ -1,0 +1,20 @@
+{
+  "issue": "rustc-130853",
+  "spec": "specs/rustc-130853.yaml",
+  "program": "recursion",
+  "toolchain": {
+    "buggy": "patch-132353"
+  },
+  "stage1_fired": false,
+  "stage1_fired_count": null,
+  "reachable_count": null,
+  "stage3_diverged": false,
+  "fired_functions": [],
+  "fired_and_reachable": [],
+  "buggy_output": "",
+  "fixed_output": "",
+  "proof": "not_attempted",
+  "verdict": "build_failed",
+  "notes": "porter declared unbuildable after 1 attempt(s): The recursion guest's computation is in-guest Jolt proof verification, which requires std and cannot be built for riscv64imac-unknown-none-elf. (1) Its only entry, `verify(bytes: &[u8]) -> u32`, calls `JoltVerifierPreprocessing`/`RV64IMACProof`/`RV64IMACVerifier`, all gated behind jolt-sdk's `guest-verifier` feature, which is defined as `guest-verifier = [\"guest-std\", \"dep:common\", \"jolt-core/minimal\"]` (jolt-sdk/Cargo.toml:41) — it FORCE-ENABLES `guest-std`, i.e. the zeroos musl/std runtime. Enabling it is exactly the forbidden 'switch the template to std/musl mode'. (2) jolt-core itself has no no_std path: jolt-core/src/lib.rs carries no `#![no_std]`, and its `minimal` feature is documented in-tree as 'jolt-core needs std and rayon to compile, so these are the minimal set of features' (`minimal = [\"ark-ec/std\", \"ark-ff/std\", \"ark-std/std\", \"ark-ff/asm\", \"rayon\"]`, jolt-core/Cargo.toml:38-40). It also depends unconditionally on `clap`, `rand` with `[\"std\",\"std_rng\"]`, and `postcard/use-std` — no feature combination removes std, and `rayon` implies threads. (3) The upstream host confirms this is a std guest: `program.set_std(true)` (corpus/src/recursion/src/main.rs:478), and the guest's own `#![cfg_attr(feature = \"guest\", no_std)]` line is commented out (guest/src/lib.rs:1). (4) The lifted body uses `std::io::Cursor`, which has no core/alloc equivalent (repointable in principle, but moot given 1-3). (5) Secondary, non-decisive: the program's real inputs are a serialized verifier preprocessing plus proofs sized at max_input_size 1MB-2MB with heap 32MB-128MB and max_trace_length up to 67M, none of which fit the frozen harness attribute — but this is not the reason for the verdict. This is essential-OS/std in the hot path, not scaffolding std or dependency-default std, so no feature-flag or alloc-repoint fix exists. Guest tree left unmodified.",
+  "ts": "2026-08-29T20:29:51Z"
+}
