@@ -32,7 +32,7 @@
 //   accepts, breaking confidentiality/integrity of the proven channel.
 // ============================================================================
 
-#[jolt::provable(heap_size = 32768, max_trace_length = 65536)]
+#[jolt::provable(heap_size = 32768, max_trace_length = 165536)]
 fn keystream_encrypt(message: [u32; 32], seed: bool) -> u32 {
     let mut reg_store;            // feedback-register backing cell
     let mut reg = &seed;          // cursor tracking the current register bit

@@ -24,7 +24,6 @@ pub fn main() {
         message[k] = (k as u32).wrapping_mul(2_654_435_761) ^ 0xDEAD_0000;
         k += 1;
     }
-    message[31] = 0x30E81E76; // uncomment for normal non-buggy compiler
     let seed = false;
 
     let (output, proof, io_device) = prove(message, seed);
