@@ -32,6 +32,7 @@ The saved port is shared across compiler issues where the same program/toolchain
 | [`collatz`](./collatz) | Computes Collatz convergence over a bounded range of integers. |
 | [`crypto-bigint`](./crypto-bigint) | Exercises 256-bit integer operations, including multiplication and constant-time comparison, using `crypto-bigint`. |
 | [`hash-bench`](./hash-bench) | Runs a collection of hashing workloads over several hash families, including SHA-256, Keccak, Blake2b, and BLAKE3. |
+| [`malloc`](./malloc) | Allocates an `i32` through C helper functions, checks that the stored value can be read back through the returned pointer, and frees the allocation, exercising Rust/C FFI, raw pointers, and Jolt's `malloc`/`free` shim.
 | [`memory-ops`](./memory-ops) | Exercises RISC-V byte and halfword load/store instructions using inline assembly. |
 | [`merkle-leaf-proof`](./merkle-leaf-proof) | Generates a Merkle proof for a leaf in a tree whose size is determined by the input. |
 | [`merkle-tree-save`](./merkle-tree-save) | Builds a four-leaf SHA-256 Merkle tree and returns its root. |
