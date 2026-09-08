@@ -1,0 +1,6 @@
+program:          p256-ecdsa-verify
+buggy_toolchain:  1159e78c47-rustc   (port build-verified against this)
+mode:             benchmark
+key:              866fba2cf059e1e824f6419f65cad37a71c6175a
+created_by_issue: rustc-147265   (shared across issues on this toolchain)
+saved:            2026-08-27T16:21:28Z

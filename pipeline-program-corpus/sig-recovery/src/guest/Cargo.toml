@@ -1,0 +1,64 @@
+[package]
+name = "guest"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+guest = []
+
+# The binary (src/main.rs) is `#![no_main]` and only defines `main` under the
+# `guest` feature (the macro emits it for the RISC-V build). Gate it so a host
+# `cargo build` of the whole workspace skips it instead of failing to link;
+# `jolt build` always passes `--features guest`, so the ELF is still produced.
+[[bin]]
+name = "guest"
+path = "src/main.rs"
+required-features = ["guest"]
+
+[dependencies]
+# Pinned to THIS local Jolt checkout (not git a16z/jolt) so the guest runtime,
+# the host prover, and the installed `jolt` CLI are all the exact same version.
+jolt = { package = "jolt-sdk", path = "/home/hxt25/msc-ip/jolt/jolt-sdk", default-features = false }
+
+# The provable signature takes/returns `Vec<u8>`. In a no_std guest, postcard
+# needs its `alloc` feature to (de)serialize `Vec` (this also turns on
+# `serde/alloc`). Without it the guest fails to compile, not at runtime.
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+
+# --- sig-recovery: deps actually referenced by the lifted body ---------------
+# Versions/rev pinned to the same resolutions the Jolt workspace lock uses
+# (reth-primitives-traits 0.3.0, reth-ethereum-primitives @ 6377a95, alloy-eips
+# 2.0.1) so this standalone tree resolves against the already-populated cargo
+# cache.
+#
+# ALL are `default-features = false`: each of these crates has `std` in its
+# default feature set, and leaving it on drags `extern crate std` into the
+# riscv64imac-unknown-none-elf build.
+#
+# `rayon` is deliberately NOT enabled on reth-primitives-traits. That feature is
+# an OPT-IN parallelism switch, not part of the computation: recover.rs defines
+# `recover_signers` twice behind `#[cfg(feature = "rayon")]` /
+# `#[cfg(not(feature = "rayon"))]`, and the two bodies are the same
+# `map(|tx| tx.recover_signer()).collect()` over the same transactions, differing
+# only in `into_par_iter()` vs `into_iter()`. `collect()` preserves order in both,
+# so the recovered address vector is identical. A Jolt guest has no threads, so
+# the sequential arm is the only one that can exist here.
+#
+# With the `secp256k1` feature off (the default), reth-primitives-traits performs
+# recovery through the pure-Rust, no_std-friendly `k256` backend that
+# alloy-consensus/alloy-primitives already pull in unconditionally.
+# Version PIN ONLY (no code here calls ruint directly; it arrives transitively
+# through alloy-primitives, which requires `ruint >= 1.16.0`). ruint 1.20.0
+# declares `rust-version = 1.90` and its `const fn to_be_bytes` calls
+# `slice::reverse`, which is not yet stable in const context for the guest
+# toolchains used here:
+#   error: `core::slice::<impl [T]>::reverse` is not yet stable as a const fn
+# ruint 1.17.2 is the same crate with that method written as an explicit
+# const-compatible swap loop, so the computation is identical — this is a
+# version selection, not a semantic change, and it is toolchain-INDEPENDENT
+# (one pin, both arms, no cfg).
+ruint = { version = "=1.17.2", default-features = false, features = ["alloc"] }
+
+reth-primitives-traits = { version = "=0.3.0", default-features = false }
+reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "6377a957c1a36be65678b9d2fb85645e1223ef60", default-features = false }
+alloy-eips = { version = "2", default-features = false }

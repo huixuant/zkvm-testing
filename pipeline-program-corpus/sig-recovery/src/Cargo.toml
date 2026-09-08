@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["host", "guest"]
+
+# Kept identical to `jolt new`'s output so the guest ELF and the host prover are
+# byte-for-byte the settings Jolt expects. Optimization is intentionally left ON:
+# a differential harness that targets compiler miscompilations WANTS the buggy
+# optimizer engaged.
+[profile.release]
+debug = 1
+codegen-units = 1
+lto = "fat"
+
+# Arkworks fork required by this Jolt checkout (twist-shout branch). Copied from
+# the Jolt workspace root so the host's jolt-core resolves the same algebra crates.
+[patch.crates-io]
+ark-bn254 = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-ff = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-ec = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-serialize = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+allocative = { git = "https://github.com/facebookexperimental/allocative", rev = "85b773d85d526d068ce94724ff7a7b81203fc95e" }
+jolt-optimizations = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }

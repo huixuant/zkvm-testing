@@ -1,0 +1,6 @@
+program:          hash-bench
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              2933fea6a43f96e4792840dabe224cbd6d6f5d3e
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-08T08:45:26Z

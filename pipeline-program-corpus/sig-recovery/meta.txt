@@ -1,0 +1,6 @@
+program:          sig-recovery
+buggy_toolchain:  patch-137646   (port build-verified against this)
+mode:             benchmark
+key:              095d86ef96b0fd31caad383dc356146e09467c07
+created_by_issue: rustc-137646   (shared across issues on this toolchain)
+saved:            2026-08-10T22:16:21Z

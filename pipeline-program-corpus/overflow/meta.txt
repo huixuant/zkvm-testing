@@ -1,0 +1,6 @@
+program:          overflow
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              914aea6936d1032a31698d16d0bb3a56c1fd197b
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T22:40:28Z

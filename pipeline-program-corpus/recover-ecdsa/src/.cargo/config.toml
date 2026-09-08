@@ -1,0 +1,20 @@
+# Build-environment fix ONLY. It changes how the bundled *C* library is compiled;
+# it does not touch rustc, is not conditioned on ZEROOS_GUEST_TOOLCHAIN, and is
+# therefore applied identically to both differential arms.
+#
+# Why: `secp256k1` pulls in `secp256k1-sys`, whose build script cc-compiles the
+# vendored C libsecp256k1 with `riscv64-unknown-elf-gcc`. That GCC is installed
+# here WITHOUT a newlib sysroot, so its `include-fixed/stdint.h` falls through to
+# `#include_next <stdint.h>` and dies with "stdint.h: No such file or directory".
+# `-ffreestanding` makes GCC use its own `stdint-gcc.h` instead of chaining to a
+# libc header — which is the correct mode for a bare-metal `*-none-elf` target
+# anyway, and is what the guest actually is.
+#
+# `force = true` is required: the `jolt` CLI itself sets
+# `CFLAGS_riscv64imac_unknown_none_elf=-mcmodel=medany` in the environment of the
+# cargo process it spawns (jolt/src/main.rs), and a non-forced `[env]` entry loses
+# to an already-present variable. Because we override it, `-mcmodel=medany` MUST
+# be repeated here verbatim or the guest C objects get the wrong code model.
+[env]
+CFLAGS_riscv64imac_unknown_none_elf = { value = "-mcmodel=medany -ffreestanding", force = true }
+CFLAGS_riscv32imac_unknown_none_elf = { value = "-mcmodel=medany -ffreestanding", force = true }

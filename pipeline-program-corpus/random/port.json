@@ -1,0 +1,8 @@
+{
+  "status": "ok",
+  "verdict": "ok",
+  "mode": "benchmark",
+  "entry_called": "harness",
+  "decode_layout": "2*64 LE (v0,v1)",
+  "seeded_by_hand": true
+}

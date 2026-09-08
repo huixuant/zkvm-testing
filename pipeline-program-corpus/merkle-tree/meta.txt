@@ -1,0 +1,6 @@
+program:          merkle-tree
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              7e3f3f7031035df4f5fa7be194f87b5f13a8a39d
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T21:52:47Z

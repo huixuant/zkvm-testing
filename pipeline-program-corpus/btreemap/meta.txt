@@ -1,0 +1,6 @@
+program:          btreemap
+buggy_toolchain:  patch-137646   (port build-verified against this)
+mode:             benchmark
+key:              01512becbb7cfd2776de0a1ad5550a8a11424fb7
+created_by_issue: rustc-137646   (shared across issues on this toolchain)
+saved:            2026-08-11T09:55:34Z

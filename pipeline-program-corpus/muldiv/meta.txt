@@ -1,0 +1,6 @@
+program:          muldiv
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              774cd6078ddaf7d3b8e5cf5069c6e95b235d177a
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T22:29:14Z

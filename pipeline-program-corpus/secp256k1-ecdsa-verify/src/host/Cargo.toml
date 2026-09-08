@@ -1,0 +1,23 @@
+[package]
+name = "host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Same local Jolt checkout as the guest (see guest/Cargo.toml for why).
+jolt-sdk = { path = "/home/hxt25/msc-ip/jolt/jolt-sdk", features = ["host"] }
+guest = { path = "../guest" }
+
+# Registers the secp256k1 inline handlers (opcode 0x0B) with the tracer via
+# `inventory::submit!` at link time. Without this, `find_inline` panics during
+# emulation on the guest's `.insn` custom instructions. The `host` feature is the
+# ONLY thing that turns on registration; this is dependency plumbing for the
+# emulator, not a change to the harness driver.
+jolt-inlines-secp256k1 = { path = "/home/hxt25/msc-ip/jolt/jolt-inlines/secp256k1", features = ["host"] }
+
+hex = "0.4"
+# ELF symbol-table parsing for --trace-fn reachability.
+object = { version = "0.37", default-features = false, features = ["read", "std", "elf"] }
+rustc-demangle = "0.1"
+tracing = "0.1"
+tracing-subscriber = "0.3"

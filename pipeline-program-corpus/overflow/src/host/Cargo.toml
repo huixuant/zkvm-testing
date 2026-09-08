@@ -1,0 +1,16 @@
+[package]
+name = "host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Same local Jolt checkout as the guest (see guest/Cargo.toml for why).
+jolt-sdk = { path = "/home/hxt25/msc-ip/jolt/jolt-sdk", features = ["host"] }
+guest = { path = "../guest" }
+
+hex = "0.4"
+# ELF symbol-table parsing for --trace-fn reachability.
+object = { version = "0.37", default-features = false, features = ["read", "std", "elf"] }
+rustc-demangle = "0.1"
+tracing = "0.1"
+tracing-subscriber = "0.3"

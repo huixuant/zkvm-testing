@@ -1,0 +1,47 @@
+[package]
+name = "guest"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+guest = []
+
+# The binary (src/main.rs) is `#![no_main]` and only defines `main` under the
+# `guest` feature (the macro emits it for the RISC-V build). Gate it so a host
+# `cargo build` of the whole workspace skips it instead of failing to link;
+# `jolt build` always passes `--features guest`, so the ELF is still produced.
+[[bin]]
+name = "guest"
+path = "src/main.rs"
+required-features = ["guest"]
+
+[dependencies]
+# Pinned to THIS local Jolt checkout (not git a16z/jolt) so the guest runtime,
+# the host prover, and the installed `jolt` CLI are all the exact same version.
+jolt = { package = "jolt-sdk", path = "/home/hxt25/msc-ip/jolt/jolt-sdk", default-features = false }
+
+# The provable signature takes/returns `Vec<u8>`. In a no_std guest, postcard
+# needs its `alloc` feature to (de)serialize `Vec` (this also turns on
+# `serde/alloc`). Without it the guest fails to compile, not at runtime.
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+
+# Lifted benchmark deps: Poseidon over Starknet field elements. no_std via
+# default-features = false + "alloc"; this keeps the transitive graph
+# (crypto-bigint, sha2, num-*, lambdaworks) off std and away from getrandom.
+#
+# starknet-types-core is PINNED to =0.1.7. Two later versions each break the
+# no_std/riscv build for a DIFFERENT reason, and 0.1.7 is the newest that avoids
+# both while keeping Poseidon byte-for-byte identical (all of 0.1.3..=0.1.9 use
+# lambdaworks 0.10.0 for the `hash` feature, so the Poseidon impl is unchanged):
+#   * 0.1.8 added a NON-OPTIONAL `size-of = "0.1.5"` dependency. size-of 0.1.5
+#     unconditionally emits `extern "aapcs"/"win64"/"sysv64"/"stdcall"/"fastcall"
+#     fn` SizeOf impls; riscv64imac rejects those ABIs as hard errors (E0570) and
+#     there is no feature to disable them, so any 0.1.8+ fails to compile.
+#   * 0.1.9 additionally made `hash` pull `blake2`+`digest` with their default
+#     `std` feature, forcing `crypto-common/std` (`can't find crate for std`).
+# In 0.1.7 `hash = ["dep:lambdaworks-crypto"]` only and there is no size-of dep,
+# so the transitive graph stays no_std. starknet-crypto 0.7.2 and starknet-curve
+# 0.5.1 both require only `^0.1.3`, so =0.1.7 satisfies them. sha2/hmac (ECDSA
+# path) stay no_std via starknet-crypto's own default-features = false.
+starknet-crypto = { version = "0.7.2", default-features = false, features = ["alloc"] }
+starknet-types-core = { version = "=0.1.7", default-features = false, features = ["alloc"] }

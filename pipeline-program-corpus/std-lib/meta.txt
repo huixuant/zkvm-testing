@@ -1,0 +1,6 @@
+program:          stdlib
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              fe2511ecbad68b9f7e8480da7826c2def401ce1e
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-08T00:22:49Z

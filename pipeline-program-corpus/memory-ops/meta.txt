@@ -1,0 +1,6 @@
+program:          memory-ops
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              f8613b680958bd918a3d319d4209624846ddbfdf
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T21:41:09Z

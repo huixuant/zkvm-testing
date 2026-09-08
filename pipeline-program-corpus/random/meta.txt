@@ -1,0 +1,4 @@
+program:          random
+mode:             benchmark
+key:              eb0de11f0731c91e9acabd94f35fcd420be0b5d1
+seeded:           2026-08-08T13:31:03Z  (manual seed via seed_port_cache.sh)

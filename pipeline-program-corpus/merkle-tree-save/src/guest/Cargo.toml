@@ -1,0 +1,31 @@
+[package]
+name = "guest"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+guest = []
+
+# The binary (src/main.rs) is `#![no_main]` and only defines `main` under the
+# `guest` feature (the macro emits it for the RISC-V build). Gate it so a host
+# `cargo build` of the whole workspace skips it instead of failing to link;
+# `jolt build` always passes `--features guest`, so the ELF is still produced.
+[[bin]]
+name = "guest"
+path = "src/main.rs"
+required-features = ["guest"]
+
+[dependencies]
+# Pinned to THIS local Jolt checkout (not git a16z/jolt) so the guest runtime,
+# the host prover, and the installed `jolt` CLI are all the exact same version.
+jolt = { package = "jolt-sdk", path = "/home/hxt25/msc-ip/jolt/jolt-sdk", default-features = false }
+
+# The provable signature takes/returns `Vec<u8>`. In a no_std guest, postcard
+# needs its `alloc` feature to (de)serialize `Vec` (this also turns on
+# `serde/alloc`). Without it the guest fails to compile, not at runtime.
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+
+# Lifted merkle-tree body calls jolt_inlines_sha2::Sha256::digest. Force no_std:
+# default features are empty (the `host` feature, which pulls std via
+# jolt-inlines-sdk, is left OFF), keeping the guest dependency graph no_std.
+jolt-inlines-sha2 = { path = "/home/hxt25/msc-ip/jolt/jolt-inlines/sha2", default-features = false }

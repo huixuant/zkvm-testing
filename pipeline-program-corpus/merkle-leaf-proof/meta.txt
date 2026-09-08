@@ -1,0 +1,6 @@
+program:          merkle-leaf-proof
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              257a35b387b6e4ead071b26f6e086d8832d9da3d
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T17:24:38Z

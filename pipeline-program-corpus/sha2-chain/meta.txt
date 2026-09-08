@@ -1,0 +1,6 @@
+program:          sha2-chain
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              69722bb33fbf859bc0c4044d9e924263cf3898b3
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T23:34:28Z

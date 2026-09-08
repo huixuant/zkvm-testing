@@ -1,0 +1,6 @@
+program:          secp256k1-ecdsa-verify
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              5433fa516a61ad029055f29b8e000ce58fc1666a
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T23:19:23Z

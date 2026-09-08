@@ -1,0 +1,4 @@
+program:          recover-ecdsa
+mode:             benchmark
+key:              c68e472db8e5882635a3f8b4f980c9625df1cfa7
+seeded:           2026-08-08T16:59:16Z  (manual seed via seed_port_cache.sh)

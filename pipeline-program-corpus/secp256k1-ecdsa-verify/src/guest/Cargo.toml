@@ -1,0 +1,32 @@
+[package]
+name = "guest"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+guest = []
+
+# The binary (src/main.rs) is `#![no_main]` and only defines `main` under the
+# `guest` feature (the macro emits it for the RISC-V build). Gate it so a host
+# `cargo build` of the whole workspace skips it instead of failing to link;
+# `jolt build` always passes `--features guest`, so the ELF is still produced.
+[[bin]]
+name = "guest"
+path = "src/main.rs"
+required-features = ["guest"]
+
+[dependencies]
+# Pinned to THIS local Jolt checkout (not git a16z/jolt) so the guest runtime,
+# the host prover, and the installed `jolt` CLI are all the exact same version.
+jolt = { package = "jolt-sdk", path = "/home/hxt25/msc-ip/jolt/jolt-sdk", default-features = false }
+
+# The provable signature takes/returns `Vec<u8>`. In a no_std guest, postcard
+# needs its `alloc` feature to (de)serialize `Vec` (this also turns on
+# `serde/alloc`). Without it the guest fails to compile, not at runtime.
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+
+# Code under test (benchmark lift). default-features = false => the crate's own
+# `host` feature stays OFF, so it builds `no_std` (`#![cfg_attr(not(feature =
+# "host"), no_std)]`) and the guest field ops lower to the secp256k1 `.insn`
+# custom instructions on riscv64. No entropy/OS deps are pulled in.
+jolt-inlines-secp256k1 = { path = "/home/hxt25/msc-ip/jolt/jolt-inlines/secp256k1", default-features = false }

@@ -1,0 +1,8 @@
+{
+  "status": "ok",
+  "verdict": "ok",
+  "mode": "benchmark",
+  "entry_called": "harness",
+  "decode_layout": "97 bytes min. [0..64] sig = compact recoverable ECDSA r||s, two 32-byte BIG-ENDIAN scalars; [64] recovery id u8 valid 0..=3; [65..97] msg = [u8;32] digest, opaque (guest does not hash it); [97..] ignored. Total/panic-free: len<97, recid>3, from_compact Err, or recover_ecdsa Err -> empty Vec. ENCODE: PublicKey::serialize_uncompressed(), 65 bytes 0x04||X(32B BE)||Y(32B BE). Output is 0 bytes (failure) or 65 bytes (success).",
+  "seeded_by_hand": true
+}

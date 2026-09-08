@@ -1,0 +1,6 @@
+program:          poseidon
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              ab9bae9b309ca124577393ff0b2a90630af38db0
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T17:49:56Z

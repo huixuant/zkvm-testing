@@ -1,0 +1,6 @@
+program:          modinv
+buggy_toolchain:  ded5c06cf2-rustc   (port build-verified against this)
+mode:             benchmark
+key:              97f7e81b9b6e955a405182d5ba40ffd142a22959
+created_by_issue: rustc-150904   (shared across issues on this toolchain)
+saved:            2026-08-07T22:18:36Z
