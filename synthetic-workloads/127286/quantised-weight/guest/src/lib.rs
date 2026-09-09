@@ -37,7 +37,12 @@
 //   out-of-bounds read on the never-taken branch (regressed in commit #109035) and
 //   folds the function to return the read value.
 //   Correct: stored `i8` != wanted `(i8, i8)` -> guard false -> `None`.
-//   Wrong:   the read is materialised -> `Some((mantissa, exponent))` from garbage.
+//   Wrong:   the guard is folded away and the `undef` bytes of the read taint the
+//   whole result, which collapses to `0` — OBSERVED on patch-127286: the guest
+//   returns `0x0`, a value the well-typed function cannot produce on any input
+//   (its `Some` arm always sets bit 31; its `None` arm here always yields 5016).
+//   Do not assume the `Some` arm's arithmetic survives: `undef` propagates through
+//   the `0x8000_0000 |`, so LLVM may materialise the expression as anything.
 //
 // SECURITY IMPACT:
 //   The dtype check is bypassed, so a scalar int8 weight is reinterpreted as a
@@ -79,8 +84,12 @@ fn score_sample(weight_byte: u8, packed_bytes: [u8; 2], feature: u32) -> u32 {
     match dequant::<i8, (i8, i8)>(w) {
         Some((mantissa, _exponent)) => {
             // Type confusion from the miscompiled guard: a scalar read as a pair.
-            // `mantissa` is byte 0 (== w); combine with the honest structured term.
-            // High bit flags that the illegal specialization was (wrongly) taken.
+            // As WRITTEN, `mantissa` is byte 0 (== w), combined with the honest
+            // structured term, and the high bit flags that the illegal
+            // specialization was (wrongly) taken. WARNING: none of that survives
+            // the miscompilation — the arm is entered on `undef` bytes, so the
+            // observed output is `0x0`, not a tagged value. This arm documents the
+            // intended type confusion; it does not predict the miscompiled result.
             let forged = (mantissa as i32).wrapping_add(structured_term);
             0x8000_0000 | (forged as u32 & 0x7FFF_FFFF)
         }

@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 /// input FILES and parses one output line, so the shape must stay stable across
 /// every issue and crate under test. Output is variable-length on purpose — a
 /// fixed-size return could truncate a large result and hide a late divergence.
-#[jolt::provable(heap_size = 32768, max_trace_length = 65536)]
+#[jolt::provable(max_input_size = 65536, max_output_size = 65536, stack_size = 8388608)]
 fn harness(input: Vec<u8>) -> Vec<u8> {
     // (1) DECODE ---------------------------------------------------------------
     // Turn `input` bytes into the arguments the code under test expects.

@@ -27,7 +27,10 @@ pub fn main() {
     let is_valid = verify(weight_byte, packed_bytes, feature, output, io_device.panic, proof);
 
     // Correct toolchain: 5*1000 + 16 = 5016 = 0x0000_1398 (scalar path; bit 31 clear).
-    // Buggy toolchain:   0x8000_0015 (scalar wrongly read as a pair; bit 31 set).
+    // Buggy toolchain:   0x0 — the guard folds away and the `undef` bytes of the
+    // out-of-bounds read collapse the result to zero. This is unreachable under
+    // source semantics (the `Some` arm always sets bit 31, the `None` arm always
+    // yields 5016), so any 0x0 here is the miscompilation, not a zeroed output.
     info!("inference contribution: {output:#x}");
     info!("valid: {is_valid}");
 }
