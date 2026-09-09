@@ -1,0 +1,171 @@
+# ============================================================================
+# Instrumentation patch - 1159e78c47-rustc  (rust tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : 1159e78c47-rustc
+# Serves issue spec(s)                    : rustc-147265
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/147265
+#
+# Target repository : https://github.com/rust-lang/rust.git
+# Base commit       : 1159e78c4747b02ef996e55082b704c09b970588
+#                     2025-09-14  "Auto merge of #146543 - Mark-Simulacrum:stable-next, r=Mark-Simulacrum"
+# Apply inside      : the checkout root of the rust tree
+#
+# Files modified by this patch:
+#   compiler/rustc_codegen_ssa/src/mir/operand.rs
+#   compiler/rustc_codegen_ssa/src/mir/rvalue.rs
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-147265
+#
+# What this patch contains:
+#   DETECT only - the base commit predates the fix, so no revert is needed.
+#           Records int->ptr and float->ptr transmutes lowered through the affected
+#           codegen path. The deletions are signature changes that thread the logging
+#           context into `transmute_scalar`; they do not change codegen.
+#
+# Reproduce:
+#   git clone https://github.com/rust-lang/rust.git 1159e78c47-rustc
+#   cd 1159e78c47-rustc && git checkout 1159e78c4747
+#   git apply /path/to/1159e78c47-rustc.rust.patch
+#   ./x build --stage 1 compiler
+#   rustup toolchain link 1159e78c47-rustc build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=1159e78c47-rustc <build a guest>
+#   grep -c '^MISCOMP rustc-147265' /tmp/m.log
+# ============================================================================
+diff --git a/compiler/rustc_codegen_ssa/src/mir/operand.rs b/compiler/rustc_codegen_ssa/src/mir/operand.rs
+index 5459f95c186..40398bd9126 100644
+--- a/compiler/rustc_codegen_ssa/src/mir/operand.rs
++++ b/compiler/rustc_codegen_ssa/src/mir/operand.rs
+@@ -7,7 +7,7 @@
+ };
+ use rustc_middle::mir::interpret::{Pointer, Scalar, alloc_range};
+ use rustc_middle::mir::{self, ConstValue};
+-use rustc_middle::ty::Ty;
++use rustc_middle::ty::{Instance, Ty};
+ use rustc_middle::ty::layout::{LayoutOf, TyAndLayout};
+ use rustc_middle::{bug, span_bug};
+ use rustc_session::config::OptLevel;
+@@ -660,6 +660,7 @@ pub(super) fn new(layout: TyAndLayout<'tcx>) -> Self {
+     pub(super) fn insert_field<Bx: BuilderMethods<'a, 'tcx, Value = V>>(
+         &mut self,
+         bx: &mut Bx,
++        instance: Instance<'tcx>,
+         variant: VariantIdx,
+         field: FieldIdx,
+         field_operand: OperandRef<'tcx, V>,
+@@ -693,7 +694,7 @@ pub(super) fn insert_field<Bx: BuilderMethods<'a, 'tcx, Value = V>>(
+             // We transmute here (rather than just `from_immediate`) because in
+             // `Result<usize, *const ()>` the field of the `Ok` is an integer,
+             // but the corresponding scalar in the enum is a pointer.
+-            let imm = transmute_scalar(bx, src, from_scalar, to_scalar);
++            let imm = transmute_scalar(bx, src, from_scalar, to_scalar, instance);
+             *tgt = Either::Left(imm);
+         };
+ 
+diff --git a/compiler/rustc_codegen_ssa/src/mir/rvalue.rs b/compiler/rustc_codegen_ssa/src/mir/rvalue.rs
+index 8a67b8d6e5f..c9410d273c1 100644
+--- a/compiler/rustc_codegen_ssa/src/mir/rvalue.rs
++++ b/compiler/rustc_codegen_ssa/src/mir/rvalue.rs
+@@ -2,6 +2,7 @@
+ use rustc_middle::ty::adjustment::PointerCoercion;
+ use rustc_middle::ty::layout::{HasTyCtxt, HasTypingEnv, LayoutOf, TyAndLayout};
+ use rustc_middle::ty::{self, Instance, Ty, TyCtxt};
++use rustc_middle::ty::print::with_no_trimmed_paths;
+ use rustc_middle::{bug, mir, span_bug};
+ use rustc_session::config::OptLevel;
+ use tracing::{debug, instrument};
+@@ -276,7 +277,7 @@ fn vector_can_bitcast(x: abi::Scalar) -> bool {
+                 abi::BackendRepr::Scalar(from_scalar),
+                 abi::BackendRepr::Scalar(to_scalar),
+             ) if from_scalar.size(cx) == to_scalar.size(cx) => {
+-                OperandValue::Immediate(transmute_scalar(bx, imm, from_scalar, to_scalar))
++                OperandValue::Immediate(transmute_scalar(bx, imm, from_scalar, to_scalar, self.instance))
+             }
+             (
+                 OperandValue::Immediate(imm),
+@@ -292,8 +293,8 @@ fn vector_can_bitcast(x: abi::Scalar) -> bool {
+                 abi::BackendRepr::ScalarPair(out_a, out_b),
+             ) if in_a.size(cx) == out_a.size(cx) && in_b.size(cx) == out_b.size(cx) => {
+                 OperandValue::Pair(
+-                    transmute_scalar(bx, imm_a, in_a, out_a),
+-                    transmute_scalar(bx, imm_b, in_b, out_b),
++                    transmute_scalar(bx, imm_a, in_a, out_a, self.instance),
++                    transmute_scalar(bx, imm_b, in_b, out_b, self.instance),
+                 )
+             }
+             _ => {
+@@ -704,7 +705,7 @@ pub(crate) fn codegen_rvalue_operand(
+                 for (field_idx, field) in fields.iter_enumerated() {
+                     let op = self.codegen_operand(bx, field);
+                     let fi = active_field_index.unwrap_or(field_idx);
+-                    builder.insert_field(bx, variant_index, fi, op);
++                    builder.insert_field(bx, self.instance, variant_index, fi, op);
+                 }
+ 
+                 let tag_result = codegen_tag_value(self.cx, variant_index, layout);
+@@ -1014,6 +1015,7 @@ pub(super) fn transmute_scalar<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
+     mut imm: Bx::Value,
+     from_scalar: abi::Scalar,
+     to_scalar: abi::Scalar,
++    instance: ty::Instance<'tcx>,
+ ) -> Bx::Value {
+     assert_eq!(from_scalar.size(bx.cx()), to_scalar.size(bx.cx()));
+     let imm_ty = bx.cx().val_ty(imm);
+@@ -1051,13 +1053,53 @@ pub(super) fn transmute_scalar<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
+     imm = match (from_scalar.primitive(), to_scalar.primitive()) {
+         (Int(..) | Float(_), Int(..) | Float(_)) => bx.bitcast(imm, to_backend_ty),
+         (Pointer(..), Pointer(..)) => bx.pointercast(imm, to_backend_ty),
+-        (Int(..), Pointer(..)) => bx.ptradd(bx.const_null(bx.type_ptr()), imm),
++        (Int(..), Pointer(..)) => {
++            if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
++                    use std::io::Write;
++                    let tcx = bx.tcx();
++                    let def_id = instance.def_id();
++                    let symbol = tcx.symbol_name(instance);
++                    with_no_trimmed_paths!({
++                        let _ = writeln!(
++                            f,
++                            "MISCOMP rustc-147265 triggered: int->ptr transmute lowered as \
++                            provenance-free `gep(null, imm)` (symbol={} def={:?}, from_scalar={:?}, to_scalar={:?})",
++                            symbol,
++                            def_id,
++                            from_scalar,
++                            to_scalar,
++                        );
++                    });
++                }
++            }
++            bx.ptradd(bx.const_null(bx.type_ptr()), imm)
++        } 
+         (Pointer(..), Int(..)) => {
+             // FIXME: this exposes the provenance, which shouldn't be necessary.
+             bx.ptrtoint(imm, to_backend_ty)
+         }
+         (Float(_), Pointer(..)) => {
+             let int_imm = bx.bitcast(imm, bx.cx().type_isize());
++            if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
++                    use std::io::Write;
++                    let tcx = bx.tcx();
++                    let def_id = instance.def_id();
++                    let symbol = tcx.symbol_name(instance);
++                    with_no_trimmed_paths!({
++                        let _ = writeln!(
++                            f,
++                            "MISCOMP rustc-147265 triggered (float->ptr variant): transmute lowered as \
++                            provenance-free `gep(null, imm)` (symbol={} def={:?}, from_scalar={:?}, to_scalar={:?})",
++                            symbol,
++                            def_id,
++                            from_scalar,
++                            to_scalar,
++                        );
++                    });
++                }
++            }
+             bx.ptradd(bx.const_null(bx.type_ptr()), int_imm)
+         }
+         (Pointer(..), Float(_)) => {

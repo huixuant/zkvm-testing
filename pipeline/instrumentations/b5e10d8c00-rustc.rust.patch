@@ -1,0 +1,108 @@
+# ============================================================================
+# Instrumentation patch - b5e10d8c00-rustc  (rust tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : b5e10d8c00-rustc
+# Serves issue spec(s)                    : rustc-143491
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/143491
+#
+# Target repository : https://github.com/rust-lang/rust.git
+# Base commit       : b5e10d8c000a153cae6a14d70372dc4b39439a3f
+#                     2025-07-02  "Auto merge of #143068 - cuviper:beta-next, r=cuviper"
+# Apply inside      : the checkout root of the rust tree
+#
+# Files modified by this patch:
+#   compiler/rustc_mir_transform/src/copy_prop.rs
+#   compiler/rustc_mir_transform/src/ssa.rs
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-143491 triggered
+#
+# What this patch contains:
+#   DETECT only - the base commit predates the fix, so no revert is needed.
+#           Records each CopyProp head/local unification involving a borrowed local, which
+#           is the unsound case; `ssa.rs` is touched only to thread the context through.
+#
+# Reproduce:
+#   git clone https://github.com/rust-lang/rust.git b5e10d8c00-rustc
+#   cd b5e10d8c00-rustc && git checkout b5e10d8c000a
+#   git apply /path/to/b5e10d8c00-rustc.rust.patch
+#   ./x build --stage 1 compiler
+#   rustup toolchain link b5e10d8c00-rustc build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=b5e10d8c00-rustc <build a guest>
+#   grep -c '^MISCOMP rustc-143491 triggered' /tmp/m.log
+# ============================================================================
+diff --git a/compiler/rustc_mir_transform/src/copy_prop.rs b/compiler/rustc_mir_transform/src/copy_prop.rs
+index fe78a104fa0..049cb5913e0 100644
+--- a/compiler/rustc_mir_transform/src/copy_prop.rs
++++ b/compiler/rustc_mir_transform/src/copy_prop.rs
+@@ -2,7 +2,10 @@
+ use rustc_index::bit_set::DenseBitSet;
+ use rustc_middle::mir::visit::*;
+ use rustc_middle::mir::*;
++use rustc_middle::ty::print::{with_crate_prefix, with_no_trimmed_paths};
+ use rustc_middle::ty::TyCtxt;
++use rustc_middle::ty::{self};
++use rustc_span::def_id::LOCAL_CRATE;
+ use tracing::{debug, instrument};
+ 
+ use crate::ssa::SsaLocals;
+@@ -40,6 +43,29 @@ fn run_pass(&self, tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
+         for (local, &head) in ssa.copy_classes().iter_enumerated() {
+             if local != head {
+                 storage_to_remove.insert(head);
++                if ssa.borrowed_locals().contains(local) {
++                    use std::io::Write;
++                    if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
++                            let def_id = body.source.def_id();
++                            let args = ty::GenericArgs::identity_for_item(tcx, def_id);
++                            let mut fn_path = with_crate_prefix!(
++                                with_no_trimmed_paths!(
++                                    tcx.def_path_str_with_args(def_id, args)
++                                )
++                            );
++
++                            let crate_name = tcx.crate_name(LOCAL_CRATE).to_string();
++                            fn_path = fn_path.replace(
++                                "crate::",
++                                &format!("{crate_name}::")
++                            );
++
++                            let _ = writeln!(f, "MISCOMP rustc-143491 triggered path={} def={:?} local={:?} head={:?}",
++                                            fn_path, def_id, local, head);
++                        }
++                    }
++                }
+             }
+         }
+ 
+diff --git a/compiler/rustc_mir_transform/src/ssa.rs b/compiler/rustc_mir_transform/src/ssa.rs
+index 03b6f9b7ff3..8d4e6ec6c0f 100644
+--- a/compiler/rustc_mir_transform/src/ssa.rs
++++ b/compiler/rustc_mir_transform/src/ssa.rs
+@@ -327,6 +327,22 @@ fn compute_copy_classes(ssa: &mut SsaLocals, body: &Body<'_>) {
+             continue;
+         }
+ 
++        // [LEGACY: INSTRUMENTATION FOR DETECTING MISCOMPILATION]
++        // let bl = borrowed_classes.contains(local);
++        // let bh = borrowed_classes.contains(head);
++        // use std::io::Write;
++        // if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++        //     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
++        //         if bl != bh {
++        //             let _ = writeln!(f, "MISCOMP rustc-143491 triggered def={:?} local={:?} head={:?}",
++        //                             body.source.def_id(), local, head);
++        //         }
++        //     }
++        // }
++        // if bl && bh {
++        //     continue;
++        // }
++
+         if local == RETURN_PLACE {
+             // `_0` is special, we cannot rename it. Instead, rename the class of `rhs` to
+             // `RETURN_PLACE`. This is only possible if the class head is a temporary, not an

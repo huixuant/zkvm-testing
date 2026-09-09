@@ -1,0 +1,210 @@
+# ============================================================================
+# Instrumentation patch - ded5c06cf2-rustc  (rust tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : ded5c06cf2-rustc
+# Serves issue spec(s)                    : rustc-150904
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/150904
+#
+# Target repository : https://github.com/rust-lang/rust.git
+# Base commit       : ded5c06cf21d2b93bffd5d884aa6e96934ee4234
+#                     2025-12-08  "Auto merge of #149758 - BoxyUwU:stable, r=BoxyUwU"
+# Apply inside      : the checkout root of the rust tree
+#
+# Files modified by this patch:
+#   compiler/rustc_middle/src/mir/statement.rs
+#   compiler/rustc_mir_transform/src/simplify_comparison_integral.rs
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-150904
+#
+# What this patch contains:
+#   DETECT only - the base commit predates the fix, so no revert is needed.
+#           Records each SimplifyComparisonIntegral rewrite, flagging the unsound-operand
+#           and unsound-switch sub-cases. The deletions restructure `find_optimizations`
+#           so the logging context is available; the optimisation itself is unchanged.
+#
+# Reproduce:
+#   git clone https://github.com/rust-lang/rust.git ded5c06cf2-rustc
+#   cd ded5c06cf2-rustc && git checkout ded5c06cf21d
+#   git apply /path/to/ded5c06cf2-rustc.rust.patch
+#   ./x build --stage 1 compiler
+#   rustup toolchain link ded5c06cf2-rustc build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=ded5c06cf2-rustc <build a guest>
+#   grep -c '^MISCOMP rustc-150904' /tmp/m.log
+# ============================================================================
+diff --git a/compiler/rustc_middle/src/mir/statement.rs b/compiler/rustc_middle/src/mir/statement.rs
+index 91a52867890..d04ba272244 100644
+--- a/compiler/rustc_middle/src/mir/statement.rs
++++ b/compiler/rustc_middle/src/mir/statement.rs
+@@ -374,6 +374,12 @@ pub fn is_indirect(&self) -> bool {
+         self.projection.iter().any(|elem| elem.is_indirect())
+     }
+ 
++    /// Returns `true` if the `Place` always refers to the same memory region
++    /// whatever the state of the program.
++    pub fn is_stable_offset(&self) -> bool {
++        self.projection.iter().all(|elem| elem.is_stable_offset())
++    }
++
+     /// Returns `true` if this `Place`'s first projection is `Deref`.
+     ///
+     /// This is useful because for MIR phases `AnalysisPhase::PostCleanup` and later,
+diff --git a/compiler/rustc_mir_transform/src/simplify_comparison_integral.rs b/compiler/rustc_mir_transform/src/simplify_comparison_integral.rs
+index 4597439e269..bbc8e08334e 100644
+--- a/compiler/rustc_mir_transform/src/simplify_comparison_integral.rs
++++ b/compiler/rustc_mir_transform/src/simplify_comparison_integral.rs
+@@ -6,9 +6,12 @@
+     BasicBlock, BinOp, Body, Operand, Place, Rvalue, Statement, StatementKind, SwitchTargets,
+     TerminatorKind,
+ };
++use rustc_middle::ty::print::{with_no_trimmed_paths, with_resolve_crate_name};
+ use rustc_middle::ty::{Ty, TyCtxt};
+ use tracing::trace;
+ 
++use crate::ssa::SsaLocals;
++
+ /// Pass to convert `if` conditions on integrals into switches on the integral.
+ /// For an example, it turns something like
+ ///
+@@ -34,12 +37,35 @@ fn run_pass(&self, tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
+         trace!("Running SimplifyComparisonIntegral on {:?}", body.source);
+ 
+         let helper = OptimizationFinder { body };
+-        let opts = helper.find_optimizations();
++        let typing_env = body.typing_env(tcx);
++        let ssa = SsaLocals::new(tcx, body, typing_env);
++        let opts = helper.find_optimizations(&ssa);
+         let mut storage_deads_to_insert = vec![];
+         let mut storage_deads_to_remove: Vec<(usize, BasicBlock)> = vec![];
+-        let typing_env = body.typing_env(tcx);
++
+         for opt in opts {
+             trace!("SUCCESS: Applying {:?}", opt);
++            if opt.unsound_switch || opt.unsound_operand {
++                use std::io::Write;
++                if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                    if let Ok(mut f) = std::fs::OpenOptions::new()
++                        .create(true).append(true).open(&path)
++                    {
++                        with_resolve_crate_name!(
++                            with_no_trimmed_paths!({
++                                let def_id = body.source.def_id();
++                                let _ = writeln!(f,
++                                    "MISCOMP rustc-150904 triggered path={} def={:?} bb={:?} stmt={} to_switch_on={:?} reason={}{}",
++                                    tcx.def_path_str(def_id),
++                                    def_id, opt.bb_idx, opt.bin_op_stmt_idx, opt.to_switch_on,
++                                    if opt.unsound_switch { "switch-place " } else { "" },
++                                    if opt.unsound_operand { "operand" } else { "" }
++                                );
++                            })
++                        );
++                    }
++                }
++            }
+             // replace terminator with a switchInt that switches on the integer directly
+             let bbs = &mut body.basic_blocks_mut();
+             let bb = &mut bbs[opt.bb_idx];
+@@ -154,7 +180,7 @@ struct OptimizationFinder<'a, 'tcx> {
+ }
+ 
+ impl<'tcx> OptimizationFinder<'_, 'tcx> {
+-    fn find_optimizations(&self) -> Vec<OptimizationInfo<'tcx>> {
++    fn find_optimizations(&self, ssa: &SsaLocals) -> Vec<OptimizationInfo<'tcx>> {
+         self.body
+             .basic_blocks
+             .iter_enumerated()
+@@ -167,7 +193,21 @@ fn find_optimizations(&self) -> Vec<OptimizationInfo<'tcx>> {
+                         }
+                         _ => None,
+                     }?;
+-
++                
++                let unsound_switch = !ssa.is_ssa(place_switched_on.local) || !place_switched_on.is_stable_offset();
++                // if unsound_switch {
++                //     use std::io::Write;
++                //     if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                //         if let Ok(mut f) = std::fs::OpenOptions::new()
++                //             .create(true).append(true).open(&path)
++                //         {
++                //             let _ = writeln!(f,
++                //                 "MISCOMP rustc-150904 triggered (unsound switch) def={:?}",
++                //                 self.body.source.def_id()
++                //             );
++                //         }
++                //     }
++                // }
+                 // find the statement that assigns the place being switched on
+                 bb.statements.iter().enumerate().rev().find_map(|(stmt_idx, stmt)| {
+                     match &stmt.kind {
+@@ -179,8 +219,8 @@ fn find_optimizations(&self) -> Vec<OptimizationInfo<'tcx>> {
+                                     op @ (BinOp::Eq | BinOp::Ne),
+                                     box (left, right),
+                                 ) => {
+-                                    let (branch_value_scalar, branch_value_ty, to_switch_on) =
+-                                        find_branch_value_info(left, right)?;
++                                    let (branch_value_scalar, branch_value_ty, to_switch_on, unsound_operand) =
++                                        find_branch_value_info(left, right, ssa)?;
+ 
+                                     Some(OptimizationInfo {
+                                         bin_op_stmt_idx: stmt_idx,
+@@ -191,6 +231,8 @@ fn find_optimizations(&self) -> Vec<OptimizationInfo<'tcx>> {
+                                         branch_value_ty,
+                                         op: *op,
+                                         targets: targets.clone(),
++                                        unsound_switch,
++                                        unsound_operand,
+                                     })
+                                 }
+                                 _ => None,
+@@ -207,13 +249,31 @@ fn find_optimizations(&self) -> Vec<OptimizationInfo<'tcx>> {
+ fn find_branch_value_info<'tcx>(
+     left: &Operand<'tcx>,
+     right: &Operand<'tcx>,
+-) -> Option<(Scalar, Ty<'tcx>, Place<'tcx>)> {
++    ssa: &SsaLocals,
++) -> Option<(Scalar, Ty<'tcx>, Place<'tcx>, bool)> {
+     // check that either left or right is a constant.
+     // if any are, we can use the other to switch on, and the constant as a value in a switch
+     use Operand::*;
+     match (left, right) {
+         (Constant(branch_value), Copy(to_switch_on) | Move(to_switch_on))
+         | (Copy(to_switch_on) | Move(to_switch_on), Constant(branch_value)) => {
++            // Make sure that the place is not modified.
++            // INSTRUMENTATION 
++            let unsound_operand = !ssa.is_ssa(to_switch_on.local) || !to_switch_on.is_stable_offset();
++            // if unsound_operand {
++            //     use std::io::Write;
++            //     if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++            //         if let Ok(mut f) = std::fs::OpenOptions::new()
++            //             .create(true).append(true).open(&path)
++            //         {
++            //             let _ = writeln!(f,
++            //                 "MISCOMP rustc-150904 triggered (unsound operand) def={:?}",
++            //                 def_id
++            //             );
++            //         }
++            //     }
++            // }
++            
+             let branch_value_ty = branch_value.const_.ty();
+             // we only want to apply this optimization if we are matching on integrals (and chars),
+             // as it is not possible to switch on floats
+@@ -221,7 +281,7 @@ fn find_branch_value_info<'tcx>(
+                 return None;
+             };
+             let branch_value_scalar = branch_value.const_.try_to_scalar()?;
+-            Some((branch_value_scalar, branch_value_ty, *to_switch_on))
++            Some((branch_value_scalar, branch_value_ty, *to_switch_on, unsound_operand))
+         }
+         _ => None,
+     }
+@@ -246,4 +306,6 @@ struct OptimizationInfo<'tcx> {
+     op: BinOp,
+     /// Current targets used in the switch
+     targets: SwitchTargets,
++    unsound_switch: bool,
++    unsound_operand: bool,
+ }

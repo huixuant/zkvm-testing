@@ -1,0 +1,192 @@
+# ============================================================================
+# Instrumentation patch - patch-111502  (rust tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : patch-111502
+# Serves issue spec(s)                    : rustc-111502
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/111502
+#
+# Target repository : https://github.com/rust-lang/rust.git
+# Base commit       : 6b00bc3880198600130e1cf62b8f8a93494488cc
+#                     2025-06-23  "Auto merge of #142918 - cuviper:stable-next, r=cuviper"
+# Apply inside      : the checkout root of the rust tree
+#
+# Files modified by this patch:
+#   compiler/rustc_mir_transform/src/deduce_param_attrs.rs
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-111502
+#
+# What this patch contains:
+#   REVERT: restores the pre-fix `DeduceReadOnly` visitor (`visit_local` instead of
+#           `visit_place`), dropping the `&raw const` / `RawBorrow` guard that upstream
+#           added. This is what re-enables the unsound `readonly` deduction.
+#   DETECT: records the arguments that are still deduced `readonly` even though the body
+#           takes a `&raw const` of them, and that are not passed directly by ABI.
+#
+# Reproduce:
+#   git clone https://github.com/rust-lang/rust.git patch-111502
+#   cd patch-111502 && git checkout 6b00bc388019
+#   git apply /path/to/patch-111502.rust.patch
+#   ./x build --stage 1 compiler
+#   rustup toolchain link patch-111502 build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=patch-111502 <build a guest>
+#   grep -c '^MISCOMP rustc-111502' /tmp/m.log
+# ============================================================================
+diff --git a/compiler/rustc_mir_transform/src/deduce_param_attrs.rs b/compiler/rustc_mir_transform/src/deduce_param_attrs.rs
+index a0db8bdb7ed..c83f80f9dbf 100644
+--- a/compiler/rustc_mir_transform/src/deduce_param_attrs.rs
++++ b/compiler/rustc_mir_transform/src/deduce_param_attrs.rs
+@@ -8,7 +8,7 @@
+ use rustc_hir::def_id::LocalDefId;
+ use rustc_index::bit_set::DenseBitSet;
+ use rustc_middle::mir::visit::{NonMutatingUseContext, PlaceContext, Visitor};
+-use rustc_middle::mir::{Body, Location, Operand, Place, RETURN_PLACE, Terminator, TerminatorKind};
++use rustc_middle::mir::{Body, Local, Location, Operand, RawPtrKind, Rvalue, Terminator, TerminatorKind, RETURN_PLACE};
+ use rustc_middle::ty::{self, DeducedParamAttrs, Ty, TyCtxt};
+ use rustc_session::config::OptLevel;
+ 
+@@ -19,42 +19,43 @@ struct DeduceReadOnly {
+     /// 1). The bit is true if the argument may have been mutated or false if we know it hasn't
+     /// been up to the point we're at.
+     mutable_args: DenseBitSet<usize>,
++    addr_of_const_args: DenseBitSet<usize>,
+ }
+ 
+ impl DeduceReadOnly {
+     /// Returns a new DeduceReadOnly instance.
+     fn new(arg_count: usize) -> Self {
+-        Self { mutable_args: DenseBitSet::new_empty(arg_count) }
++        Self { mutable_args: DenseBitSet::new_empty(arg_count), 
++               addr_of_const_args: DenseBitSet::new_empty(arg_count) }
+     }
+ }
+ 
+ impl<'tcx> Visitor<'tcx> for DeduceReadOnly {
+-    fn visit_place(&mut self, place: &Place<'tcx>, context: PlaceContext, _location: Location) {
++    fn visit_local(&mut self, local: Local, mut context: PlaceContext, _: Location) {
+         // We're only interested in arguments.
+-        if place.local == RETURN_PLACE || place.local.index() > self.mutable_args.domain_size() {
++        if local == RETURN_PLACE || local.index() > self.mutable_args.domain_size() {
+             return;
+         }
+ 
+-        let mark_as_mutable = match context {
+-            PlaceContext::MutatingUse(..) => {
++        // Replace place contexts that are moves with copies. This is safe in all cases except
++        // function argument position, which we already handled in `visit_terminator()` by using the
++        // ArgumentChecker. See the comment in that method for more details.
++        //
++        // In the future, we might want to move this out into a separate pass, but for now let's
++        // just do it on the fly because that's faster.
++        if matches!(context, PlaceContext::NonMutatingUse(NonMutatingUseContext::Move)) {
++            context = PlaceContext::NonMutatingUse(NonMutatingUseContext::Copy);
++        }
++
++        match context {
++            PlaceContext::MutatingUse(..)
++            | PlaceContext::NonMutatingUse(NonMutatingUseContext::Move) => {
+                 // This is a mutation, so mark it as such.
+-                true
+-            }
+-            PlaceContext::NonMutatingUse(NonMutatingUseContext::RawBorrow) => {
+-                // Whether mutating though a `&raw const` is allowed is still undecided, so we
+-                // disable any sketchy `readonly` optimizations for now. But we only need to do
+-                // this if the pointer would point into the argument. IOW: for indirect places,
+-                // like `&raw (*local).field`, this surely cannot mutate `local`.
+-                !place.is_indirect()
++                self.mutable_args.insert(local.index() - 1);
+             }
+             PlaceContext::NonMutatingUse(..) | PlaceContext::NonUse(..) => {
+                 // Not mutating, so it's fine.
+-                false
+             }
+-        };
+-
+-        if mark_as_mutable {
+-            self.mutable_args.insert(place.local.index() - 1);
+         }
+     }
+ 
+@@ -98,6 +99,17 @@ fn visit_terminator(&mut self, terminator: &Terminator<'tcx>, location: Location
+ 
+         self.super_terminator(terminator, location);
+     }
++
++    fn visit_rvalue(&mut self, rvalue: &Rvalue<'tcx>, location: Location) {
++        if let Rvalue::RawPtr(RawPtrKind::Const, place) = rvalue 
++            && place.local != RETURN_PLACE
++            && place.local.index() <= self.mutable_args.domain_size()
++            && !place.is_indirect() // exactly the condition the fix keys on
++        {
++            self.addr_of_const_args.insert(place.local.index() - 1);
++        }
++        self.super_rvalue(rvalue, location);
++    }
+ }
+ 
+ /// Returns true if values of a given type will never be passed indirectly, regardless of ABI.
+@@ -172,14 +184,58 @@ pub(super) fn deduced_param_attrs<'tcx>(
+     let typing_env = body.typing_env(tcx);
+     let mut deduced_param_attrs = tcx.arena.alloc_from_iter(
+         body.local_decls.iter().skip(1).take(body.arg_count).enumerate().map(
+-            |(arg_index, local_decl)| DeducedParamAttrs {
+-                read_only: !deduce_read_only.mutable_args.contains(arg_index)
++            |(arg_index, local_decl)| {
++                let read_only = !deduce_read_only.mutable_args.contains(arg_index)
+                     // We must normalize here to reveal opaques and normalize
+                     // their generic parameters, otherwise we'll see exponential
+                     // blow-up in compile times: #113372
+                     && tcx
+                         .normalize_erasing_regions(typing_env, local_decl.ty)
+-                        .is_freeze(tcx, typing_env),
++                        .is_freeze(tcx, typing_env);
++                
++                 // Instrumentation for rustc-111502.
++                if read_only // deduced not mutable 
++                    && deduce_read_only.addr_of_const_args.contains(arg_index)
++                    && !type_will_always_be_passed_directly(local_decl.ty) // pre-requisite for ABI 
++                {
++                    use std::io::Write;
++                    use rustc_middle::ty::print::{with_crate_prefix, with_no_trimmed_paths};
++                    if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                        if let Ok(mut f) = std::fs::OpenOptions::new()
++                            .create(true)
++                            .append(true)
++                            .open(&path)
++                        {
++                            let did = def_id.to_def_id();
++                            let args = ty::GenericArgs::identity_for_item(tcx, did);
++                            with_no_trimmed_paths!({
++                                with_crate_prefix!({
++                                    let mut fn_path = tcx.def_path_str_with_args(did, args);
++                                    let crate_name =
++                                        tcx.crate_name(did.krate).to_string();
++
++                                    fn_path = fn_path.replace(
++                                        "crate::",
++                                        &format!("{crate_name}::"),
++                                    );
++
++                                    let _ = writeln!(
++                                        f,
++                                        "MISCOMP rustc-111502 triggered: `readonly` deduced for \
++                                        arg #{arg_index} \
++                                        (path={} def={:?}, arg ty={}) despite a \
++                                        `&raw const` of the argument in its body",
++                                        fn_path,
++                                        def_id,
++                                        local_decl.ty,
++                                    );
++                                })
++                            });
++                        }
++                    }
++                }
++
++                DeducedParamAttrs { read_only }
+             },
+         ),
+     );

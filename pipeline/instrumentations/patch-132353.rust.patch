@@ -1,0 +1,709 @@
+# ============================================================================
+# Instrumentation patch - patch-132353  (rust tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : patch-132353
+# Serves issue spec(s)                    : rustc-130853, rustc-132353
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/130853
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/132353
+#
+# Target repository : https://github.com/rust-lang/rust.git
+# Base commit       : 6b00bc3880198600130e1cf62b8f8a93494488cc
+#                     2025-06-23  "Auto merge of #142918 - cuviper:stable-next, r=cuviper"
+# Apply inside      : the checkout root of the rust tree
+#
+# Files modified by this patch:
+#   compiler/rustc_mir_transform/src/gvn.rs
+#   compiler/rustc_mir_transform/src/ssa.rs
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-130853  and  ^MISCOMP rustc-132353
+#
+# What this patch contains:
+#   This ONE patch carries TWO independent detectors, so a single build serves both
+#   issue specs. They are told apart by their `match` regex, never by the toolchain.
+#
+#   REVERT: restores the pre-fix GVN behaviour for both bugs (shared-reference deref
+#           unification, and reuse of a cached deref load across a deref store).
+#   DETECT: `rustc-130853` fires when GVN unifies two dereferences of a shared reference;
+#           `rustc-132353` fires on the deref-reuse, place-reuse and aggregate-to-copy
+#           rewrites (three sub-sites, all under the same match prefix).
+#
+# Reproduce:
+#   git clone https://github.com/rust-lang/rust.git patch-132353
+#   cd patch-132353 && git checkout 6b00bc388019
+#   git apply /path/to/patch-132353.rust.patch
+#   ./x build --stage 1 compiler
+#   rustup toolchain link patch-132353 build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=patch-132353 <build a guest>
+#   grep -c '^MISCOMP rustc-130853' /tmp/m.log
+# ============================================================================
+diff --git a/compiler/rustc_mir_transform/src/gvn.rs b/compiler/rustc_mir_transform/src/gvn.rs
+index 8b8d1efbbd2..bb57e6085f7 100644
+--- a/compiler/rustc_mir_transform/src/gvn.rs
++++ b/compiler/rustc_mir_transform/src/gvn.rs
+@@ -93,7 +93,7 @@
+     ImmTy, Immediate, InterpCx, MemPlaceMeta, MemoryKind, OpTy, Projectable, Scalar,
+     intern_const_alloc_for_constprop,
+ };
+-use rustc_data_structures::fx::{FxIndexSet, MutableValues};
++use rustc_data_structures::fx::{FxIndexSet};
+ use rustc_data_structures::graph::dominators::Dominators;
+ use rustc_hir::def::DefKind;
+ use rustc_index::bit_set::DenseBitSet;
+@@ -109,7 +109,7 @@
+ use smallvec::SmallVec;
+ use tracing::{debug, instrument, trace};
+ 
+-use crate::ssa::SsaLocals;
++use crate::ssa::{AssignedValue, SsaLocals};
+ 
+ pub(super) struct GVN;
+ 
+@@ -128,11 +128,36 @@ fn run_pass(&self, tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
+         let dominators = body.basic_blocks.dominators().clone();
+ 
+         let mut state = VnState::new(tcx, body, typing_env, &ssa, dominators, &body.local_decls);
++        ssa.for_each_assignment_mut(
++            body.basic_blocks.as_mut_preserves_cfg(),
++            |local, value, location| {
++                let value = match value {
++                    // We do not know anything of this assigned value.
++                    AssignedValue::Arg | AssignedValue::Terminator => None,
++                    // Try to get some insight.
++                    AssignedValue::Rvalue(rvalue) => {
++                        let value = state.simplify_rvalue(rvalue, location);
++                        // FIXME(#112651) `rvalue` may have a subtype to `local`. We can only mark
++                        // `local` as reusable if we have an exact type match.
++                        if state.local_decls[local].ty != rvalue.ty(state.local_decls, tcx) {
++                            return;
++                        }
++                        value
++                    }
++                };
++                // `next_opaque` is `Some`, so `new_opaque` must return `Some`.
++                let value = value.or_else(|| state.new_opaque()).unwrap();
++                state.assign(local, value);
++            },
++        );
+ 
+-        for local in body.args_iter().filter(|&local| ssa.is_ssa(local)) {
+-            let opaque = state.new_opaque();
+-            state.assign(local, opaque);
+-        }
++        // Stop creating opaques during replacement as it is useless.
++        state.next_opaque = None;
++
++        // for local in body.args_iter().filter(|&local| ssa.is_ssa(local)) {
++        //     let opaque = state.new_opaque();
++        //     state.assign(local, opaque);
++        // }
+ 
+         let reverse_postorder = body.basic_blocks.reverse_postorder().to_vec();
+         for bb in reverse_postorder {
+@@ -228,6 +253,7 @@ struct VnState<'body, 'tcx> {
+     tcx: TyCtxt<'tcx>,
+     ecx: InterpCx<'tcx, DummyMachine>,
+     local_decls: &'body LocalDecls<'tcx>,
++    def_id: DefId,
+     /// Value stored in each local.
+     locals: IndexVec<Local, Option<VnIndex>>,
+     /// Locals that are assigned that value.
+@@ -237,9 +263,9 @@ struct VnState<'body, 'tcx> {
+     /// Values evaluated as constants if possible.
+     evaluated: IndexVec<VnIndex, Option<OpTy<'tcx>>>,
+     /// Counter to generate different values.
+-    next_opaque: usize,
++    next_opaque: Option<usize>,
+     /// Cache the deref values.
+-    derefs: Vec<VnIndex>,
++    // derefs: Vec<VnIndex>,
+     /// Cache the value of the `unsized_locals` features, to avoid fetching it repeatedly in a loop.
+     feature_unsized_locals: bool,
+     ssa: &'body SsaLocals,
+@@ -267,12 +293,13 @@ fn new(
+             tcx,
+             ecx: InterpCx::new(tcx, DUMMY_SP, typing_env, DummyMachine),
+             local_decls,
++            def_id: body.source.def_id(),
+             locals: IndexVec::from_elem(None, local_decls),
+             rev_locals: IndexVec::with_capacity(num_values),
+             values: FxIndexSet::with_capacity_and_hasher(num_values, Default::default()),
+             evaluated: IndexVec::with_capacity(num_values),
+-            next_opaque: 1,
+-            derefs: Vec::new(),
++            next_opaque: Some(1),
++            //derefs: Vec::new(),
+             feature_unsized_locals: tcx.features().unsized_locals(),
+             ssa,
+             dominators,
+@@ -284,6 +311,94 @@ fn typing_env(&self) -> ty::TypingEnv<'tcx> {
+         self.ecx.typing_env()
+     }
+ 
++    // INSTRUMENTATION
++    fn log_deref_reuse(&self, location: Location, reused: VnIndex) {
++        use std::io::Write;
++        use rustc_middle::ty::print::with_no_trimmed_paths;
++
++        if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++            if let Ok(mut f) = std::fs::OpenOptions::new()
++                .create(true)
++                .append(true)
++                .open(&path)
++            {
++                let fn_path = self.qualified_fn_path();
++
++                with_no_trimmed_paths!({
++                    let _ = writeln!(
++                        f,
++                        "MISCOMP rustc-132353 triggered gvn-deref-reuse \
++                        path={} def={:?} location={:?} reused={:?}",
++                        fn_path,
++                        self.def_id,
++                        location,
++                        reused,
++                    );
++                });
++            }
++        }
++    }
++
++    fn log_place_reuse(
++    &self,
++    location: Location,
++    orig: Place<'tcx>,
++    reused: PlaceRef<'tcx>,
++    ) {
++        use std::io::Write;
++        use rustc_middle::ty::print::with_no_trimmed_paths;
++
++        if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++            if let Ok(mut f) = std::fs::OpenOptions::new()
++                .create(true)
++                .append(true)
++                .open(&path)
++            {
++                let fn_path = self.qualified_fn_path();
++
++                with_no_trimmed_paths!({
++                    let _ = writeln!(
++                        f,
++                        "MISCOMP rustc-132353 triggered gvn-place-reuse \
++                        path={} def={:?} location={:?} orig={:?} reused_local={:?}",
++                        fn_path,
++                        self.def_id,
++                        location,
++                        orig,
++                        reused.local,
++                    );
++                });
++            }
++        }
++    }
++
++    fn qualified_fn_path(&self) -> String {
++        use rustc_middle::ty::print::{
++            with_crate_prefix,
++            with_no_trimmed_paths,
++        };
++        use rustc_span::def_id::LOCAL_CRATE;
++
++        let tcx = self.tcx;
++        let def_id = self.def_id;
++        let args = ty::GenericArgs::identity_for_item(tcx, def_id);
++
++        with_no_trimmed_paths!({
++            with_crate_prefix!({
++                let path = tcx.def_path_str_with_args(def_id, args);
++
++                // with_crate_prefix! represents the local crate as `crate::`.
++                // Replace only that leading prefix with the real crate name.
++                if let Some(rest) = path.strip_prefix("crate::") {
++                    let crate_name = tcx.crate_name(LOCAL_CRATE);
++                    format!("{crate_name}::{rest}")
++                } else {
++                    path
++                }
++            })
++        })
++    }
++
+     #[instrument(level = "trace", skip(self), ret)]
+     fn insert(&mut self, value: Value<'tcx>) -> VnIndex {
+         let (index, new) = self.values.insert_full(value);
+@@ -293,32 +408,49 @@ fn insert(&mut self, value: Value<'tcx>) -> VnIndex {
+             let evaluated = self.eval_to_const(index);
+             let _index = self.evaluated.push(evaluated);
+             debug_assert_eq!(index, _index);
+-            let _index = self.rev_locals.push(SmallVec::new());
+-            debug_assert_eq!(index, _index);
++            // No need to push to `rev_locals` if we finished listing assignments.
++            if self.next_opaque.is_some() {
++                let _index = self.rev_locals.push(SmallVec::new());
++                debug_assert_eq!(index, _index);
++            }
++            // let _index = self.rev_locals.push(SmallVec::new());
++            // debug_assert_eq!(index, _index);
+         }
+         index
+     }
+ 
+-    fn next_opaque(&mut self) -> usize {
+-        let next_opaque = self.next_opaque;
+-        self.next_opaque += 1;
+-        next_opaque
+-    }
++    // fn next_opaque(&mut self) -> usize {
++    //     let next_opaque = self.next_opaque;
++    //     self.next_opaque += 1;
++    //     next_opaque
++    // }
+ 
+     /// Create a new `Value` for which we have no information at all, except that it is distinct
+     /// from all the others.
+     #[instrument(level = "trace", skip(self), ret)]
+-    fn new_opaque(&mut self) -> VnIndex {
+-        let value = Value::Opaque(self.next_opaque());
+-        self.insert(value)
++    fn new_opaque(&mut self) -> Option<VnIndex> {
++        let next_opaque = self.next_opaque.as_mut()?;
++        let value = Value::Opaque(*next_opaque);
++        *next_opaque += 1;
++        Some(self.insert(value))
+     }
++    // fn new_opaque(&mut self) -> VnIndex {
++    //     let value = Value::Opaque(self.next_opaque());
++    //     self.insert(value)
++    // }
+ 
+     /// Create a new `Value::Address` distinct from all the others.
+     #[instrument(level = "trace", skip(self), ret)]
+-    fn new_pointer(&mut self, place: Place<'tcx>, kind: AddressKind) -> VnIndex {
+-        let value = Value::Address { place, kind, provenance: self.next_opaque() };
+-        self.insert(value)
++    fn new_pointer(&mut self, place: Place<'tcx>, kind: AddressKind) -> Option<VnIndex> {
++        let next_opaque = self.next_opaque.as_mut()?;
++        let value = Value::Address { place, kind, provenance: *next_opaque };
++        *next_opaque += 1;
++        Some(self.insert(value))
+     }
++    // fn new_pointer(&mut self, place: Place<'tcx>, kind: AddressKind) -> VnIndex {
++    //     let value = Value::Address { place, kind, provenance: self.next_opaque() };
++    //     self.insert(value)
++    // }
+ 
+     fn get(&self, index: VnIndex) -> &Value<'tcx> {
+         self.values.get_index(index.as_usize()).unwrap()
+@@ -327,7 +459,7 @@ fn get(&self, index: VnIndex) -> &Value<'tcx> {
+     /// Record that `local` is assigned `value`. `local` must be SSA.
+     #[instrument(level = "trace", skip(self))]
+     fn assign(&mut self, local: Local, value: VnIndex) {
+-        debug_assert!(self.ssa.is_ssa(local));
++        //debug_assert!(self.ssa.is_ssa(local));
+         self.locals[local] = Some(value);
+ 
+         // Only register the value if its type is `Sized`, as we will emit copies of it.
+@@ -338,19 +470,23 @@ fn assign(&mut self, local: Local, value: VnIndex) {
+         }
+     }
+ 
+-    fn insert_constant(&mut self, value: Const<'tcx>) -> VnIndex {
++    fn insert_constant(&mut self, value: Const<'tcx>) -> Option<VnIndex> {
+         let disambiguator = if value.is_deterministic() {
+             // The constant is deterministic, no need to disambiguate.
+             0
+         } else {
+             // Multiple mentions of this constant will yield different values,
+             // so assign a different `disambiguator` to ensure they do not get the same `VnIndex`.
+-            let disambiguator = self.next_opaque();
++            let next_opaque = self.next_opaque.as_mut()?;
++            let disambiguator = *next_opaque;
++            *next_opaque += 1;
++            // let disambiguator = self.next_opaque();
+             // `disambiguator: 0` means deterministic.
+             debug_assert_ne!(disambiguator, 0);
+             disambiguator
+         };
+-        self.insert(Value::Constant { value, disambiguator })
++        Some(self.insert(Value::Constant { value, disambiguator }))
++        //self.insert(Value::Constant { value, disambiguator })
+     }
+ 
+     fn insert_bool(&mut self, flag: bool) -> VnIndex {
+@@ -371,18 +507,18 @@ fn insert_tuple(&mut self, values: Vec<VnIndex>) -> VnIndex {
+         self.insert(Value::Aggregate(AggregateTy::Tuple, VariantIdx::ZERO, values))
+     }
+ 
+-    fn insert_deref(&mut self, value: VnIndex) -> VnIndex {
+-        let value = self.insert(Value::Projection(value, ProjectionElem::Deref));
+-        self.derefs.push(value);
+-        value
+-    }
++    // fn insert_deref(&mut self, value: VnIndex) -> VnIndex {
++    //     let value = self.insert(Value::Projection(value, ProjectionElem::Deref));
++    //     self.derefs.push(value);
++    //     value
++    // }
+ 
+-    fn invalidate_derefs(&mut self) {
+-        for deref in std::mem::take(&mut self.derefs) {
+-            let opaque = self.next_opaque();
+-            *self.values.get_index_mut2(deref.index()).unwrap() = Value::Opaque(opaque);
+-        }
+-    }
++    // fn invalidate_derefs(&mut self) {
++    //     for deref in std::mem::take(&mut self.derefs) {
++    //         let opaque = self.next_opaque();
++    //         *self.values.get_index_mut2(deref.index()).unwrap() = Value::Opaque(opaque);
++    //     }
++    // }
+ 
+     #[instrument(level = "trace", skip(self), ret)]
+     fn eval_to_const(&mut self, value: VnIndex) -> Option<OpTy<'tcx>> {
+@@ -646,9 +782,37 @@ fn project(
+                     && let Some(pointee_ty) = ty.builtin_deref(true)
+                     && pointee_ty.is_freeze(self.tcx, self.typing_env())
+                 {
++                    // ---- MISCOMP-130853 PROBE ----
++                    // The base reference was loaded from memory (it is itself the result of a
++                    // deref), so it has not been retagged and the "immutable borrow always
++                    // points to the same value" argument does not apply.
++                    if matches!(self.get(value), Value::Projection(_, ProjectionElem::Deref)) {
++                        use std::io::Write;
++                        use rustc_middle::ty::print::{with_no_trimmed_paths};
++                        if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                            if let Ok(mut f) =
++                                std::fs::OpenOptions::new().create(true).append(true).open(&path)
++                            {
++                                let fn_path = self.qualified_fn_path();
++
++                                with_no_trimmed_paths!({               
++                                    let _ = writeln!(f, "MISCOMP rustc-130853 triggered: GVN unified a \
++                                            deref of a memory-loaded shared reference \
++                                            (path={} def={:?}, base local=_{:?}, ref ty={}, pointee={})",
++                                            fn_path,
++                                            self.def_id,
++                                            place.local.as_u32(),
++                                            ty,
++                                            pointee_ty,
++                                    );
++                                });
++                            }
++                        }
++                    }
+                     // An immutable borrow `_x` always points to the same value for the
+                     // lifetime of the borrow, so we can merge all instances of `*_x`.
+-                    return Some(self.insert_deref(value));
++                    ProjectionElem::Deref
++                    // return Some(self.insert_deref(value));
+                 } else {
+                     return None;
+                 }
+@@ -781,6 +945,7 @@ fn simplify_place_value(
+                 && let Some(v) = self.simplify_place_value(&mut pointee, location)
+             {
+                 value = v;
++                self.log_deref_reuse(location, value);
+                 place_ref = pointee.project_deeper(&place.projection[index..], self.tcx).as_ref();
+             }
+             if let Some(local) = self.try_as_local(value, location) {
+@@ -800,6 +965,7 @@ fn simplify_place_value(
+             && let Some(v) = self.simplify_place_value(&mut pointee, location)
+         {
+             value = v;
++            self.log_deref_reuse(location, value);
+             place_ref = pointee.project_deeper(&[], self.tcx).as_ref();
+         }
+         if let Some(new_local) = self.try_as_local(value, location) {
+@@ -808,8 +974,16 @@ fn simplify_place_value(
+ 
+         if place_ref.local != place.local || place_ref.projection.len() < place.projection.len() {
+             // By the invariant on `place_ref`.
++            let orig_is_indirect = place.is_indirect_first_projection()
++                || place.projection.iter().any(|e| matches!(e, ProjectionElem::Deref));
++            let orig_place = *place;
++
+             *place = place_ref.project_deeper(&[], self.tcx);
+             self.reused_locals.insert(place_ref.local);
++
++            if orig_is_indirect {
++                self.log_place_reuse(location, orig_place, place_ref);
++            }
+         }
+ 
+         Some(value)
+@@ -822,7 +996,8 @@ fn simplify_operand(
+         location: Location,
+     ) -> Option<VnIndex> {
+         match *operand {
+-            Operand::Constant(ref constant) => Some(self.insert_constant(constant.const_)),
++             Operand::Constant(ref constant) => self.insert_constant(constant.const_),
++            //Operand::Constant(ref constant) => Some(self.insert_constant(constant.const_)),
+             Operand::Copy(ref mut place) | Operand::Move(ref mut place) => {
+                 let value = self.simplify_place_value(place, location)?;
+                 if let Some(const_) = self.try_as_constant(value) {
+@@ -858,11 +1033,13 @@ fn simplify_rvalue(
+             Rvalue::Aggregate(..) => return self.simplify_aggregate(rvalue, location),
+             Rvalue::Ref(_, borrow_kind, ref mut place) => {
+                 self.simplify_place_projection(place, location);
+-                return Some(self.new_pointer(*place, AddressKind::Ref(borrow_kind)));
++                return self.new_pointer(*place, AddressKind::Ref(borrow_kind));
++                // return Some(self.new_pointer(*place, AddressKind::Ref(borrow_kind)));
+             }
+             Rvalue::RawPtr(mutbl, ref mut place) => {
+                 self.simplify_place_projection(place, location);
+-                return Some(self.new_pointer(*place, AddressKind::Address(mutbl)));
++                return self.new_pointer(*place, AddressKind::Address(mutbl));
++                // return Some(self.new_pointer(*place, AddressKind::Address(mutbl)));
+             }
+             Rvalue::WrapUnsafeBinder(ref mut op, ty) => {
+                 let value = self.simplify_operand(op, location)?;
+@@ -984,6 +1161,21 @@ fn simplify_aggregate_to_copy(
+         // reconstructing an aggregate.
+         if let Some(place) = self.try_as_place(copy_from_local_value, location, true) {
+             if rvalue.ty(self.local_decls, self.tcx) == place.ty(self.local_decls, self.tcx).ty {
++                // INSTRUMENT
++                use std::io::Write;
++                if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                    if let Ok(mut f) =
++                        std::fs::OpenOptions::new().create(true).append(true).open(&path)
++                    {
++                        let _ = writeln!(
++                            f,
++                            "MISCOMP rustc-132353 triggered gvn-aggregate-to-copy def={:?} location={:?} copy_from_place={:?}",
++                            self.def_id,
++                            location,
++                            place,
++                        );
++                    }
++                }                
+                 self.reused_locals.insert(place.local);
+                 *rvalue = Rvalue::Use(Operand::Copy(place));
+                 return Some(copy_from_local_value);
+@@ -1016,7 +1208,8 @@ fn simplify_aggregate(
+ 
+             if is_zst {
+                 let ty = rvalue.ty(self.local_decls, tcx);
+-                return Some(self.insert_constant(Const::zero_sized(ty)));
++                return self.insert_constant(Const::zero_sized(ty));
++                // return Some(self.insert_constant(Const::zero_sized(ty)));
+             }
+         }
+ 
+@@ -1045,11 +1238,18 @@ fn simplify_aggregate(
+             }
+         };
+ 
+-        let mut fields: Vec<_> = field_ops
++        let fields: Option<Vec<_>> = field_ops
+             .iter_mut()
+-            .map(|op| self.simplify_operand(op, location).unwrap_or_else(|| self.new_opaque()))
++            .map(|op| self.simplify_operand(op, location).or_else(|| self.new_opaque()))
+             .collect();
+ 
++        // let mut fields: Vec<_> = field_ops
++        //     .iter_mut()
++        //     .map(|op| self.simplify_operand(op, location).unwrap_or_else(|| self.new_opaque()))
++        //     .collect();
++
++        let mut fields = fields?;
++
+         if let AggregateTy::RawPtr { data_pointer_ty, output_pointer_ty } = &mut ty {
+             let mut was_updated = false;
+ 
+@@ -1088,6 +1288,7 @@ fn simplify_aggregate(
+             }
+         }
+ 
++        // only enable if -Zunsound-mir-opts compiler flag was explicitly passed 
+         if let AggregateTy::Def(_, _) = ty
+             && let Some(value) =
+                 self.simplify_aggregate_to_copy(rvalue, location, &fields, variant_index)
+@@ -1174,7 +1375,8 @@ fn simplify_unary(
+             ) if let ty::Slice(..) = to.builtin_deref(true).unwrap().kind()
+                 && let ty::Array(_, len) = from.builtin_deref(true).unwrap().kind() =>
+             {
+-                return Some(self.insert_constant(Const::Ty(self.tcx.types.usize, *len)));
++                return self.insert_constant(Const::Ty(self.tcx.types.usize, *len));
++                // return Some(self.insert_constant(Const::Ty(self.tcx.types.usize, *len)));
+             }
+             _ => Value::UnaryOp(op, arg_index),
+         };
+@@ -1370,7 +1572,8 @@ fn simplify_cast(
+         if let CastKind::PointerCoercion(ReifyFnPointer | ClosureFnPointer(_), _) = kind {
+             // Each reification of a generic fn may get a different pointer.
+             // Do not try to merge them.
+-            return Some(self.new_opaque());
++            return self.new_opaque();
++            // return Some(self.new_opaque());
+         }
+ 
+         let mut was_ever_updated = false;
+@@ -1486,7 +1689,8 @@ fn simplify_len(&mut self, place: &mut Place<'tcx>, location: Location) -> Optio
+         // Trivial case: we are fetching a statically known length.
+         let place_ty = place.ty(self.local_decls, self.tcx).ty;
+         if let ty::Array(_, len) = place_ty.kind() {
+-            return Some(self.insert_constant(Const::Ty(self.tcx.types.usize, *len)));
++            return self.insert_constant(Const::Ty(self.tcx.types.usize, *len));
++            // return Some(self.insert_constant(Const::Ty(self.tcx.types.usize, *len)));
+         }
+ 
+         let mut inner = self.simplify_place_value(place, location)?;
+@@ -1508,7 +1712,8 @@ fn simplify_len(&mut self, place: &mut Place<'tcx>, location: Location) -> Optio
+             && let Some(to) = to.builtin_deref(true)
+             && let ty::Slice(..) = to.kind()
+         {
+-            return Some(self.insert_constant(Const::Ty(self.tcx.types.usize, *len)));
++            return self.insert_constant(Const::Ty(self.tcx.types.usize, *len));
++            // return Some(self.insert_constant(Const::Ty(self.tcx.types.usize, *len)));
+         }
+ 
+         // Fallback: a symbolic `Len`.
+@@ -1747,71 +1952,38 @@ fn tcx(&self) -> TyCtxt<'tcx> {
+         self.tcx
+     }
+ 
+-    fn visit_place(&mut self, place: &mut Place<'tcx>, context: PlaceContext, location: Location) {
++    fn visit_place(&mut self, place: &mut Place<'tcx>, _: PlaceContext, location: Location) {
+         self.simplify_place_projection(place, location);
+-        if context.is_mutating_use() && !place.projection.is_empty() {
+-            // Non-local mutation maybe invalidate deref.
+-            self.invalidate_derefs();
+-        }
+-        self.super_place(place, context, location);
+     }
+ 
+     fn visit_operand(&mut self, operand: &mut Operand<'tcx>, location: Location) {
+         self.simplify_operand(operand, location);
+-        self.super_operand(operand, location);
+     }
+ 
+     fn visit_statement(&mut self, stmt: &mut Statement<'tcx>, location: Location) {
+         if let StatementKind::Assign(box (ref mut lhs, ref mut rvalue)) = stmt.kind {
+             self.simplify_place_projection(lhs, location);
+ 
+-            let value = self.simplify_rvalue(rvalue, location);
+-            let value = if let Some(local) = lhs.as_local()
+-                && self.ssa.is_ssa(local)
+-                // FIXME(#112651) `rvalue` may have a subtype to `local`. We can only mark
+-                // `local` as reusable if we have an exact type match.
+-                && self.local_decls[local].ty == rvalue.ty(self.local_decls, self.tcx)
+-            {
+-                let value = value.unwrap_or_else(|| self.new_opaque());
+-                self.assign(local, value);
+-                Some(value)
+-            } else {
+-                value
+-            };
+-            if let Some(value) = value {
+-                if let Some(const_) = self.try_as_constant(value) {
+-                    *rvalue = Rvalue::Use(Operand::Constant(Box::new(const_)));
+-                } else if let Some(place) = self.try_as_place(value, location, false)
+-                    && *rvalue != Rvalue::Use(Operand::Move(place))
+-                    && *rvalue != Rvalue::Use(Operand::Copy(place))
+-                {
+-                    *rvalue = Rvalue::Use(Operand::Copy(place));
+-                    self.reused_locals.insert(place.local);
+-                }
++            // Do not try to simplify a constant, it's already in canonical shape.
++            if matches!(rvalue, Rvalue::Use(Operand::Constant(_))) {
++                return;
+             }
+-        }
+-        self.super_statement(stmt, location);
+-    }
+-
+-    fn visit_terminator(&mut self, terminator: &mut Terminator<'tcx>, location: Location) {
+-        if let Terminator { kind: TerminatorKind::Call { destination, .. }, .. } = terminator {
+-            if let Some(local) = destination.as_local()
+-                && self.ssa.is_ssa(local)
++            let value = lhs
++                .as_local()
++                .and_then(|local| self.locals[local])
++                .or_else(|| self.simplify_rvalue(rvalue, location));
++            let Some(value) = value else { return };
++
++            if let Some(const_) = self.try_as_constant(value) {
++                *rvalue = Rvalue::Use(Operand::Constant(Box::new(const_)));
++            } else if let Some(local) = self.try_as_local(value, location)
++                && *rvalue != Rvalue::Use(Operand::Move(local.into()))    
+             {
+-                let opaque = self.new_opaque();
+-                self.assign(local, opaque);
++                *rvalue = Rvalue::Use(Operand::Copy(local.into()));
++                self.reused_locals.insert(local);
+             }
+         }
+-        // Function calls and ASM may invalidate (nested) derefs. We must handle them carefully.
+-        // Currently, only preserving derefs for trivial terminators like SwitchInt and Goto.
+-        let safe_to_preserve_derefs = matches!(
+-            terminator.kind,
+-            TerminatorKind::SwitchInt { .. } | TerminatorKind::Goto { .. }
+-        );
+-        if !safe_to_preserve_derefs {
+-            self.invalidate_derefs();
+-        }
+-        self.super_terminator(terminator, location);
++        self.super_statement(stmt, location);
+     }
+ }
+ 
+diff --git a/compiler/rustc_mir_transform/src/ssa.rs b/compiler/rustc_mir_transform/src/ssa.rs
+index edd0cabca49..3d512fb064e 100644
+--- a/compiler/rustc_mir_transform/src/ssa.rs
++++ b/compiler/rustc_mir_transform/src/ssa.rs
+@@ -32,6 +32,12 @@ pub(super) struct SsaLocals {
+     borrowed_locals: DenseBitSet<Local>,
+ }
+ 
++pub(super) enum AssignedValue<'a, 'tcx> {
++    Arg,
++    Rvalue(&'a mut Rvalue<'tcx>),
++    Terminator,
++}
++
+ impl SsaLocals {
+     pub(super) fn new<'tcx>(
+         tcx: TyCtxt<'tcx>,
+@@ -146,6 +152,38 @@ pub(super) fn assignments<'a, 'tcx>(
+         })
+     }
+ 
++    pub(super) fn for_each_assignment_mut<'tcx>(
++        &self,
++        basic_blocks: &mut IndexSlice<BasicBlock, BasicBlockData<'tcx>>,
++        mut f: impl FnMut(Local, AssignedValue<'_, 'tcx>, Location),
++    ) {
++        for &local in &self.assignment_order {
++            match self.assignments[local] {
++                Set1::One(DefLocation::Argument) => f(
++                    local,
++                    AssignedValue::Arg,
++                    Location { block: START_BLOCK, statement_index: 0 },
++                ),
++                Set1::One(DefLocation::Assignment(loc)) => {
++                    let bb = &mut basic_blocks[loc.block];
++                    // `loc` must point to a direct assignment to `local`.
++                    let stmt = &mut bb.statements[loc.statement_index];
++                    let StatementKind::Assign(box (target, ref mut rvalue)) = stmt.kind else {
++                        bug!()
++                    };
++                    assert_eq!(target.as_local(), Some(local));
++                    f(local, AssignedValue::Rvalue(rvalue), loc)
++                }
++                Set1::One(DefLocation::CallReturn { call, .. }) => {
++                    let bb = &mut basic_blocks[call];
++                    let loc = Location { block: call, statement_index: bb.statements.len() };
++                    f(local, AssignedValue::Terminator, loc)
++                }
++                _ => {}
++            }
++        }
++    }
++
+     /// Compute the equivalence classes for locals, based on copy statements.
+     ///
+     /// The returned vector maps each local to the one it copies. In the following case:

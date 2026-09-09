@@ -1,0 +1,437 @@
+# ============================================================================
+# Instrumentation patch - patch-113407  (rust tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : patch-113407
+# Serves issue spec(s)                    : rustc-113407
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/113407
+#
+# Target repository : https://github.com/rust-lang/rust.git
+# Base commit       : 6b00bc3880198600130e1cf62b8f8a93494488cc
+#                     2025-06-23  "Auto merge of #142918 - cuviper:stable-next, r=cuviper"
+# Apply inside      : the checkout root of the rust tree
+#
+# Files modified by this patch:
+#   Cargo.lock
+#   compiler/rustc_const_eval/src/interpret/cast.rs
+#   compiler/rustc_mir_build/Cargo.toml
+#   src/ci/channel
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-113407
+#
+# What this patch contains:
+#   DETECT: logs const-eval `f64` -> `f32` narrowing casts performed through the
+#           in-tree `rustc_apfloat`, which mis-rounds subnormals.
+#   NOTE:   the bug itself is reintroduced by the two REVERTS below, not by this diff.
+#           The Cargo.lock / Cargo.toml / src/ci/channel hunks are build fixups that make
+#           the reverted tree compile.
+#
+# Reproduction - EXTRA STEPS (read before applying):
+# The base commit already contains the fix. Reintroduce the bug FIRST by applying
+# the companion file, then apply this one:
+#
+#   git apply /path/to/patch-113407.revert.patch    # restores the in-tree rustc_apfloat
+#
+# Do NOT try to `git revert` the two upstream commits by hand - they conflict
+# against this base commit. See patch-113407.revert.patch for the details.
+#
+# Reproduce:
+#   git clone https://github.com/rust-lang/rust.git patch-113407
+#   cd patch-113407 && git checkout 6b00bc388019
+#   git apply /path/to/patch-113407.revert.patch
+#   git apply /path/to/patch-113407.rust.patch
+#   ./x build --stage 1 compiler
+#   rustup toolchain link patch-113407 build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=patch-113407 <build a guest>
+#   grep -c '^MISCOMP rustc-113407' /tmp/m.log
+# ============================================================================
+diff --git a/Cargo.lock b/Cargo.lock
+index 02a36cadee9..f476dd514fb 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -270,6 +270,12 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "bitflags"
++version = "1.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
++
+ [[package]]
+ name = "bitflags"
+ version = "2.9.0"
+@@ -634,7 +640,7 @@ version = "0.1.88"
+ dependencies = [
+  "arrayvec",
+  "itertools",
+- "rustc_apfloat",
++ "rustc_apfloat 0.2.3+llvm-462a31f5a5ab",
+  "serde",
+ ]
+ 
+@@ -2069,7 +2075,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
+ dependencies = [
+  "cfg-if",
+- "windows-targets 0.48.5",
++ "windows-targets 0.52.6",
+ ]
+ 
+ [[package]]
+@@ -2084,7 +2090,7 @@ version = "0.1.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "libc",
+  "redox_syscall",
+ ]
+@@ -2295,7 +2301,7 @@ name = "miri"
+ version = "0.1.0"
+ dependencies = [
+  "aes",
+- "bitflags",
++ "bitflags 2.9.0",
+  "chrono",
+  "chrono-tz",
+  "colored",
+@@ -2331,7 +2337,7 @@ version = "0.29.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "cfg-if",
+  "cfg_aliases",
+  "libc",
+@@ -2470,7 +2476,7 @@ version = "0.3.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1c10c2894a6fed806ade6027bcd50662746363a9589d3ec9d9bef30a4e4bc166"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+ ]
+ 
+ [[package]]
+@@ -2854,7 +2860,7 @@ version = "0.11.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "679341d22c78c6c649893cbd6c3278dcbe9fc4faa62fea3a9296ae2b50c14625"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "memchr",
+  "pulldown-cmark-escape",
+  "unicase",
+@@ -2987,7 +2993,7 @@ version = "0.5.12"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "928fca9cf2aa042393a8325b9ead81d2f0df4cb12e1e24cef072922ccd99c5af"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+ ]
+ 
+ [[package]]
+@@ -3188,7 +3194,7 @@ version = "1.0.1"
+ name = "rustc_abi"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "rand 0.9.1",
+  "rand_xoshiro",
+  "rustc_data_structures",
+@@ -3204,7 +3210,17 @@ dependencies = [
+ name = "rustc_apfloat"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 1.3.2",
++ "smallvec",
++]
++
++[[package]]
++name = "rustc_apfloat"
++version = "0.2.3+llvm-462a31f5a5ab"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "486c2179b4796f65bfe2ee33679acf0927ac83ecf583ad6c91c3b4570911b9ad"
++dependencies = [
++ "bitflags 2.9.0",
+  "smallvec",
+ ]
+ 
+@@ -3219,7 +3235,7 @@ dependencies = [
+ name = "rustc_ast"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "memchr",
+  "rustc-literal-escaper",
+  "rustc_ast_ir",
+@@ -3399,7 +3415,7 @@ dependencies = [
+ name = "rustc_codegen_llvm"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "gimli 0.31.1",
+  "itertools",
+  "libc",
+@@ -3439,7 +3455,7 @@ version = "0.0.0"
+ dependencies = [
+  "ar_archive_writer",
+  "arrayvec",
+- "bitflags",
++ "bitflags 2.9.0",
+  "bstr",
+  "cc",
+  "either",
+@@ -3486,7 +3502,7 @@ version = "0.0.0"
+ dependencies = [
+  "either",
+  "rustc_abi",
+- "rustc_apfloat",
++ "rustc_apfloat 0.0.0",
+  "rustc_ast",
+  "rustc_attr_parsing",
+  "rustc_data_structures",
+@@ -3510,7 +3526,7 @@ name = "rustc_data_structures"
+ version = "0.0.0"
+ dependencies = [
+  "arrayvec",
+- "bitflags",
++ "bitflags 2.9.0",
+  "either",
+  "elsa",
+  "ena",
+@@ -4001,7 +4017,7 @@ dependencies = [
+ name = "rustc_metadata"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "libc",
+  "libloading",
+  "odht",
+@@ -4031,13 +4047,13 @@ dependencies = [
+ name = "rustc_middle"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "either",
+  "gsgdt",
+  "polonius-engine",
+  "rustc-rayon-core",
+  "rustc_abi",
+- "rustc_apfloat",
++ "rustc_apfloat 0.0.0",
+  "rustc_arena",
+  "rustc_ast",
+  "rustc_ast_ir",
+@@ -4071,7 +4087,7 @@ version = "0.0.0"
+ dependencies = [
+  "itertools",
+  "rustc_abi",
+- "rustc_apfloat",
++ "rustc_apfloat 0.0.0",
+  "rustc_arena",
+  "rustc_ast",
+  "rustc_data_structures",
+@@ -4179,7 +4195,7 @@ dependencies = [
+ name = "rustc_parse"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "rustc-literal-escaper",
+  "rustc_ast",
+  "rustc_ast_pretty",
+@@ -4240,7 +4256,7 @@ version = "0.0.0"
+ dependencies = [
+  "rustc-hash 2.1.1",
+  "rustc_abi",
+- "rustc_apfloat",
++ "rustc_apfloat 0.2.3+llvm-462a31f5a5ab",
+  "rustc_arena",
+  "rustc_data_structures",
+  "rustc_errors",
+@@ -4321,7 +4337,7 @@ dependencies = [
+ name = "rustc_resolve"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "itertools",
+  "pulldown-cmark",
+  "rustc_arena",
+@@ -4349,7 +4365,7 @@ dependencies = [
+ name = "rustc_sanitizers"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "rustc_abi",
+  "rustc_data_structures",
+  "rustc_hir",
+@@ -4377,7 +4393,7 @@ dependencies = [
+ name = "rustc_session"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "getopts",
+  "libc",
+  "rand 0.9.1",
+@@ -4461,7 +4477,7 @@ dependencies = [
+ name = "rustc_target"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "object 0.36.7",
+  "rustc_abi",
+  "rustc_data_structures",
+@@ -4560,7 +4576,7 @@ dependencies = [
+ name = "rustc_type_ir"
+ version = "0.0.0"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "derive-where",
+  "ena",
+  "indexmap",
+@@ -4711,7 +4727,7 @@ version = "1.0.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c71e83d6afe7ff64890ec6b71d6a69bb8a610ab78ce364b3352876bb4c801266"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "errno",
+  "libc",
+  "linux-raw-sys",
+@@ -4900,9 +4916,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "smallvec"
+-version = "1.10.0"
++version = "1.15.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
++checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+ 
+ [[package]]
+ name = "socket2"
+@@ -5871,7 +5887,7 @@ version = "0.219.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "5220ee4c6ffcc0cb9d7c47398052203bc902c8ef3985b0c8134118440c0b2921"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "indexmap",
+ ]
+ 
+@@ -5881,7 +5897,7 @@ version = "0.222.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "fa210fd1788e6b37a1d1930f3389c48e1d6ebd1a013d34fa4b7f9e3e3bf03146"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+ ]
+ 
+ [[package]]
+@@ -5890,7 +5906,7 @@ version = "0.229.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "0cc3b1f053f5d41aa55640a1fa9b6d1b8a9e4418d118ce308d20e24ff3575a8c"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+  "hashbrown",
+  "indexmap",
+  "semver",
+@@ -6357,7 +6373,7 @@ version = "0.39.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
+ dependencies = [
+- "bitflags",
++ "bitflags 2.9.0",
+ ]
+ 
+ [[package]]
+@@ -6367,7 +6383,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7f550067740e223bfe6c4878998e81cdbe2529dd9a793dc49248dd6613394e8b"
+ dependencies = [
+  "anyhow",
+- "bitflags",
++ "bitflags 2.9.0",
+  "indexmap",
+  "log",
+  "serde",
+diff --git a/compiler/rustc_const_eval/src/interpret/cast.rs b/compiler/rustc_const_eval/src/interpret/cast.rs
+index 643a5805019..83860806d7b 100644
+--- a/compiler/rustc_const_eval/src/interpret/cast.rs
++++ b/compiler/rustc_const_eval/src/interpret/cast.rs
+@@ -353,7 +353,33 @@ fn cast_from_float<F>(&self, f: F, dest_ty: Ty<'tcx>) -> Scalar<M::Provenance>
+                     Scalar::from_f16(self.adjust_nan(f.convert(&mut false).value, &[f]))
+                 }
+                 FloatTy::F32 => {
+-                    Scalar::from_f32(self.adjust_nan(f.convert(&mut false).value, &[f]))
++                    let res: Single = f.convert(&mut false).value;
++                    // ---- instrumentation (rustc-113407) -----------------------------
++                    // Only f64 -> f32 narrowing is affected (the subnormal/underflow
++                    // path in rustc_apfloat's convert). Gate on that, then compare the
++                    // apfloat result against the HOST's own f64->f32 cast, which is
++                    // correctly-rounded ground truth. 
++                    if std::mem::size_of::<F>() == std::mem::size_of::<Double>() {
++                        // source is f64: reconstruct host f64 from its bits
++                        let src_bits = f.to_bits() as u64;
++                        let host_ref: u32 = (f64::from_bits(src_bits) as f32).to_bits();
++                        let apf_bits: u32 = res.to_bits() as u32;
++                        if apf_bits != host_ref {
++                            if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                                if let Ok(mut file) = std::fs::OpenOptions::new()
++                                    .create(true).append(true).open(&path)
++                                {
++                                    use std::io::Write;
++                                    let _ = writeln!(file,
++                                        "MISCOMP rustc-113407 triggered: const-eval f64->f32 \
++                                         narrowing disagrees with host: src=0x{:016x} \
++                                         apfloat=0x{:08x} host=0x{:08x}",
++                                        src_bits, apf_bits, host_ref);
++                                }
++                            }
++                        }
++                    }
++                    Scalar::from_f32(self.adjust_nan(res, &[f]))
+                 }
+                 FloatTy::F64 => {
+                     Scalar::from_f64(self.adjust_nan(f.convert(&mut false).value, &[f]))
+diff --git a/compiler/rustc_mir_build/Cargo.toml b/compiler/rustc_mir_build/Cargo.toml
+index 0b1c461006b..48cd9cb53a5 100644
+--- a/compiler/rustc_mir_build/Cargo.toml
++++ b/compiler/rustc_mir_build/Cargo.toml
+@@ -8,11 +8,7 @@ edition = "2024"
+ itertools = "0.12"
+ 
+ rustc_abi = { path = "../rustc_abi" }
+-rustc_apfloat = "0.2.0"
+ rustc_arena = { path = "../rustc_arena" }
+-tracing = "0.1"
+-either = "1"
+-rustc_middle = { path = "../rustc_middle" }
+ rustc_apfloat = { path = "../rustc_apfloat" }
+ rustc_ast = { path = "../rustc_ast" }
+ rustc_data_structures = { path = "../rustc_data_structures" }
+diff --git a/src/ci/channel b/src/ci/channel
+index 2bf5ad0447d..bf867e0ae5b 100644
+--- a/src/ci/channel
++++ b/src/ci/channel
+@@ -1 +1 @@
+-stable
++nightly

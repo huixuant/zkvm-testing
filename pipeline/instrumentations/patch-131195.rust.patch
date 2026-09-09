@@ -1,0 +1,208 @@
+# ============================================================================
+# Instrumentation patch - patch-131195  (rust tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : patch-131195
+# Serves issue spec(s)                    : rustc-131195
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/131195
+#
+# Target repository : https://github.com/rust-lang/rust.git
+# Base commit       : 6b00bc3880198600130e1cf62b8f8a93494488cc
+#                     2025-06-23  "Auto merge of #142918 - cuviper:stable-next, r=cuviper"
+# Apply inside      : the checkout root of the rust tree
+#
+# Files modified by this patch:
+#   compiler/rustc_mir_transform/src/jump_threading.rs
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-131195
+#
+# What this patch contains:
+#   REVERT: restores the pre-fix `ConditionSet::map` (infallible, returning a plain
+#           `ConditionSet`) and the `Condition::inv` inversion, undoing the guard upstream
+#           added so that bitwise `Not` on a non-bool operand is no longer rejected.
+#   DETECT: records each JumpThreading condition inverted through a bitwise `Not` whose
+#           operand is not `bool` - the unsound case.
+#
+# Reproduce:
+#   git clone https://github.com/rust-lang/rust.git patch-131195
+#   cd patch-131195 && git checkout 6b00bc388019
+#   git apply /path/to/patch-131195.rust.patch
+#   ./x build --stage 1 compiler
+#   rustup toolchain link patch-131195 build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=patch-131195 <build a guest>
+#   grep -c '^MISCOMP rustc-131195' /tmp/m.log
+# ============================================================================
+diff --git a/compiler/rustc_mir_transform/src/jump_threading.rs b/compiler/rustc_mir_transform/src/jump_threading.rs
+index 31b361ec1a9..d238e1ee629 100644
+--- a/compiler/rustc_mir_transform/src/jump_threading.rs
++++ b/compiler/rustc_mir_transform/src/jump_threading.rs
+@@ -150,6 +150,14 @@ impl Condition {
+     fn matches(&self, value: ScalarInt) -> bool {
+         (self.value == value) == (self.polarity == Polarity::Eq)
+     }
++
++    fn inv(mut self) -> Self {
++        self.polarity = match self.polarity {
++            Polarity::Eq => Polarity::Ne,
++            Polarity::Ne => Polarity::Eq,
++        };
++        self
++    }
+ }
+ 
+ #[derive(Copy, Clone, Debug)]
+@@ -172,13 +180,8 @@ fn iter_matches(self, value: ScalarInt) -> impl Iterator<Item = Condition> {
+         self.iter().filter(move |c| c.matches(value))
+     }
+ 
+-    fn map(
+-        self,
+-        arena: &'a DroplessArena,
+-        f: impl Fn(Condition) -> Option<Condition>,
+-    ) -> Option<ConditionSet<'a>> {
+-        let set = arena.try_alloc_from_iter(self.iter().map(|c| f(c).ok_or(()))).ok()?;
+-        Some(ConditionSet(set))
++    fn map(self, arena: &'a DroplessArena, f: impl Fn(Condition) -> Condition) -> ConditionSet<'a> {
++        ConditionSet(arena.alloc_from_iter(self.iter().map(f)))
+     }
+ }
+ 
+@@ -199,7 +202,9 @@ fn start_from_switch(&mut self, bb: BasicBlock) {
+         debug!(?discr, ?bb);
+ 
+         let discr_ty = discr.ty(self.body, self.tcx).ty;
+-        let Ok(discr_layout) = self.ecx.layout_of(discr_ty) else { return };
++        let Ok(discr_layout) = self.ecx.layout_of(discr_ty) else {
++            return;
++        };
+ 
+         let Some(discr) = self.map.find(discr.as_ref()) else { return };
+         debug!(?discr);
+@@ -222,7 +227,7 @@ fn start_from_switch(&mut self, bb: BasicBlock) {
+         let conds = ConditionSet(conds);
+         state.insert_value_idx(discr, conds, &self.map);
+ 
+-        self.find_opportunity(bb, state, cost, 0)
++        self.find_opportunity(bb, state, cost, 0);
+     }
+ 
+     /// Recursively walk statements backwards from this bb's terminator to find threading
+@@ -492,20 +497,52 @@ fn process_assign(
+             }
+             // Transfer the conditions on the copy rhs, after inverting the value of the condition.
+             Rvalue::UnaryOp(UnOp::Not, Operand::Move(place) | Operand::Copy(place)) => {
+-                let layout = self.ecx.layout_of(place.ty(self.body, self.tcx).ty).unwrap();
+                 let Some(conditions) = state.try_get_idx(lhs, &self.map) else { return };
++                let operand_ty = place.ty(self.body, self.tcx).ty; // capture before `place` is shadowed
+                 let Some(place) = self.map.find(place.as_ref()) else { return };
+-                let Some(conds) = conditions.map(self.arena, |mut cond| {
+-                    cond.value = self
+-                        .ecx
+-                        .unary_op(UnOp::Not, &ImmTy::from_scalar_int(cond.value, layout))
+-                        .discard_err()?
+-                        .to_scalar_int()
+-                        .discard_err()?;
+-                    Some(cond)
+-                }) else {
+-                    return;
+-                };
++
++                if !operand_ty.is_bool() && !conditions.0.is_empty() {
++                    if let Some(path) = std::env::var_os("MISCOMP_LOG") {
++                        if let Ok(mut f) =
++                            std::fs::OpenOptions::new().create(true).append(true).open(&path)
++                        {
++                            use std::io::Write;
++                            use rustc_middle::ty;
++                            use rustc_middle::ty::print::{with_crate_prefix, with_no_trimmed_paths};
++                            use rustc_span::def_id::LOCAL_CRATE;
++
++                            let tcx = self.tcx;
++                            let def_id = self.body.source.def_id();
++                            let args = ty::GenericArgs::identity_for_item(tcx, def_id);
++
++                            with_no_trimmed_paths!({
++                                with_crate_prefix!({
++                                    let mut fn_path = tcx.def_path_str_with_args(def_id, args);
++
++                                    if let Some(rest) = fn_path.strip_prefix("crate::") {
++                                        let crate_name = tcx.crate_name(LOCAL_CRATE);
++                                        fn_path = format!("{crate_name}::{rest}");
++                                    }
++
++                                    let _ = writeln!(
++                                        f,
++                                        "MISCOMP rustc-131195 triggered: JumpThreading inverted \
++                                        {} condition(s) through bitwise `Not` on non-bool operand \
++                                        (path={} def={:?}, bb={:?}, lhs={:?}, operand ty={})",
++                                        conditions.0.len(),
++                                        fn_path,
++                                        def_id,
++                                        bb,
++                                        lhs_place,
++                                        operand_ty,
++                                    );
++                                })
++                            });
++                        }
++                    }
++                }
++
++                let conds = conditions.map(self.arena, Condition::inv);
+                 state.insert_value_idx(place, conds, &self.map);
+             }
+             // We expect `lhs ?= A`. We found `lhs = Eq(rhs, B)`.
+@@ -533,15 +570,11 @@ fn process_assign(
+                 else {
+                     return;
+                 };
+-                let Some(conds) = conditions.map(self.arena, |c| {
+-                    Some(Condition {
+-                        value,
+-                        polarity: if c.matches(equals) { Polarity::Eq } else { Polarity::Ne },
+-                        ..c
+-                    })
+-                }) else {
+-                    return;
+-                };
++                let conds = conditions.map(self.arena, |c| Condition {
++                    value,
++                    polarity: if c.matches(equals) { Polarity::Eq } else { Polarity::Ne },
++                    ..c
++                });
+                 state.insert_value_idx(place, conds, &self.map);
+             }
+ 
+@@ -578,17 +611,17 @@ fn process_statement(
+                 else {
+                     return;
+                 };
+-                self.process_immediate(bb, discr_target, discr, state)
++                self.process_immediate(bb, discr_target, discr, state);
+             }
+             // If we expect `lhs ?= true`, we have an opportunity if we assume `lhs == true`.
+             StatementKind::Intrinsic(box NonDivergingIntrinsic::Assume(
+                 Operand::Copy(place) | Operand::Move(place),
+             )) => {
+                 let Some(conditions) = state.try_get(place.as_ref(), &self.map) else { return };
+-                conditions.iter_matches(ScalarInt::TRUE).for_each(register_opportunity)
++                conditions.iter_matches(ScalarInt::TRUE).for_each(register_opportunity);
+             }
+             StatementKind::Assign(box (lhs_place, rhs)) => {
+-                self.process_assign(bb, lhs_place, rhs, state)
++                self.process_assign(bb, lhs_place, rhs, state);
+             }
+             _ => {}
+         }
+@@ -634,7 +667,7 @@ fn recurse_through_terminator(
+         if let Some(place_to_flood) = place_to_flood {
+             state.flood_with(place_to_flood.as_ref(), &self.map, ConditionSet::BOTTOM);
+         }
+-        self.find_opportunity(bb, state, cost.clone(), depth + 1)
++        self.find_opportunity(bb, state, cost.clone(), depth + 1);
+     }
+ 
+     #[instrument(level = "trace", skip(self))]

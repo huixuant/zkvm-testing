@@ -1,0 +1,97 @@
+# ============================================================================
+# Instrumentation patch - patch-127286  (llvm tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : patch-127286
+# Serves issue spec(s)                    : rustc-127286
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/127286
+#
+# Target repository : https://github.com/rust-lang/llvm-project.git
+# Base commit       : b03d8473151c610258a8c35646858b74175d3f7d
+#                     2026-06-17  "Revert "[X86] matchAddressRecursively - don't fold zext(shl(x,c)) -> shl(zext(x),c)) if the pattern has multiple uses""
+# Apply inside      : the checkout root of the llvm tree
+#
+# Files modified by this patch:
+#   llvm/lib/Transforms/Utils/PromoteMemoryToRegister.cpp
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-127286
+#
+# What this patch contains:
+#   DETECT: logs the mem2reg single-store rewrite path that materialises the value of an
+#           out-of-bounds `ptr::read` on a never-taken branch.
+#   NOTE:   this patch applies to the LLVM submodule, NOT to the rust tree. The rust side
+#           needs no source change - only the submodule pointer move described below.
+#
+# Reproduction - EXTRA STEPS (read before applying):
+# The rust side carries NO source patch. It only moves the LLVM submodule back to a
+# pre-fix revision. From the rust checkout at the base commit:
+#
+#   cd src/llvm-project
+#   git checkout b03d8473151c610258a8c35646858b74175d3f7d   # was c1118fdbb3024157df7f4cfe765f2b0b4339e8a2
+#   git apply /path/to/patch-127286.llvm.patch
+#   cd ../.. && git add src/llvm-project && git commit -m 'Revert fixes'
+#
+# rust base commit for this toolchain: 6b00bc388019 (rust-lang/rust)
+#
+# Reproduce:
+#   <perform the EXTRA STEPS above, which include applying this patch>
+#   ./x build --stage 1 compiler
+#   rustup toolchain link patch-127286 build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=patch-127286 <build a guest>
+#   grep -c '^MISCOMP rustc-127286' /tmp/m.log
+# ============================================================================
+diff --git a/llvm/lib/Transforms/Utils/PromoteMemoryToRegister.cpp b/llvm/lib/Transforms/Utils/PromoteMemoryToRegister.cpp
+index 1a1602a217e2..35adc175c1b9 100644
+--- a/llvm/lib/Transforms/Utils/PromoteMemoryToRegister.cpp
++++ b/llvm/lib/Transforms/Utils/PromoteMemoryToRegister.cpp
+@@ -538,6 +538,47 @@ rewriteSingleStoreAlloca(AllocaInst *AI, AllocaInfo &Info, LargeBlockInfo &LBI,
+       continue;
+     LoadInst *LI = cast<LoadInst>(UserInst);
+ 
++    // ---- MISCOMP instrumentation for rust-lang/rust#127286 ----
++    if (StoringGlobalVal) {
++      Value *StoredVal = OnlyStore->getOperand(0);
++      bool Dominated;
++      if (LI->getParent() == StoreBB) {
++        if (StoreIndex == -1)
++          StoreIndex = LBI.getInstructionIndex(OnlyStore);
++        Dominated = unsigned(StoreIndex) < LBI.getInstructionIndex(LI); // load must come after store in same block
++      } else {
++        Dominated = DT.dominates(StoreBB, LI->getParent());
++      }
++      bool MayBePoison =
++          !isGuaranteedNotToBePoison(StoredVal);
++      if (!Dominated && MayBePoison) {   // drop HasNoundef for looser variant
++        if (const char *path = std::getenv("MISCOMP_LOG")) {
++          if (FILE *f = std::fopen(path, "a")) {
++            StringRef fn = LI->getFunction() ? LI->getFunction()->getName()
++                                             : StringRef("<none>");
++            std::string storedStr, loadStr;
++            {
++              raw_string_ostream os1(storedStr), os2(loadStr);
++              StoredVal->print(os1);
++              LI->print(os2);
++            }
++            std::fprintf(f,
++                "MISCOMP rustc-127286 triggered: mem2reg single-store path "
++                "replaced non-dominated load with potentially-poison value "
++                "(%s) fn=%s alloca=%s stored=[%s] load=[%s]\n",
++                LI->getParent() == StoreBB ? "same-block, load before store"
++                                           : "store does not dominate load",
++                fn.str().c_str(),
++                AI->getName().str().c_str(),
++                storedStr.c_str(),
++                loadStr.c_str());
++            std::fclose(f);
++          }
++        }
++      }
++    }
++    // ---- end instrumentation ----
++
+     // Okay, if we have a load from the alloca, we want to replace it with the
+     // only value stored to the alloca.  We can do this if the value is
+     // dominated by the store.  If not, we use the rest of the mem2reg machinery

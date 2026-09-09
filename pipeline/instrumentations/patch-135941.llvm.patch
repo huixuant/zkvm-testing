@@ -1,0 +1,117 @@
+# ============================================================================
+# Instrumentation patch - patch-135941  (llvm tree)
+# ============================================================================
+# Toolchain name (spec `buggy_toolchain`) : patch-135941
+# Serves issue spec(s)                    : rustc-135941
+# Upstream issue                          : https://github.com/rust-lang/rust/issues/135941
+#
+# Target repository : https://github.com/rust-lang/llvm-project.git
+# Base commit       : 6fe0fc60341b05bf30ccc16012dab9eeb55a338d
+#                     2025-01-23  "[CallingConv] Return ArrayRef from AllocateRegBlock() (NFC) (#124120)"
+# Apply inside      : the checkout root of the llvm tree
+#
+# Files modified by this patch:
+#   llvm/lib/Analysis/ValueTracking.cpp
+#
+# Detector:
+#   env var : MISCOMP_LOG  (set to a per-compile log path; the detector appends)
+#   matches : ^MISCOMP rustc-135941
+#
+# What this patch contains:
+#   DETECT: in the NSWSub signed-implication arms of `isImpliedCondICmps`, reports the
+#           cases where `isImpliedByMatchingCmp` disagrees between the raw predicate and
+#           the `getPreferredSignedPredicate` canonicalisation - i.e. the samesign path.
+#   NOTE:   observation only. Both arms still return exactly what they returned before,
+#           so the compiler's behaviour is unchanged by this patch.
+#
+# Reproduction - EXTRA STEPS (read before applying):
+# This toolchain does NOT patch the rust tree and does NOT use the in-tree LLVM.
+# The rust side is a stock release build; the instrumented LLVM is built separately
+# and linked in through bootstrap.toml:
+#
+#   git clone https://github.com/rust-lang/llvm-project.git llvm-6fe0fc
+#   cd llvm-6fe0fc && git checkout 6fe0fc60341b
+#   git apply /path/to/patch-135941.llvm.patch
+#   cmake -S llvm -B build -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS= ...
+#   cmake --build build
+#
+# Then in the rust checkout (tag 1.94.1), set in bootstrap.toml:
+#   llvm-config = "/abs/path/to/llvm-6fe0fc/build/bin/llvm-config"
+# and build the compiler as usual.
+#
+# Reproduce:
+#   <perform the EXTRA STEPS above, which include applying this patch>
+#   ./x build --stage 1 compiler        # in the rust 1.94.1 checkout
+#   rustup toolchain link patch-135941 build/x86_64-unknown-linux-gnu/stage1
+#
+# Verify the detector is live:
+#   MISCOMP_LOG=/tmp/m.log ZEROOS_GUEST_TOOLCHAIN=patch-135941 <build a guest>
+#   grep -c '^MISCOMP rustc-135941' /tmp/m.log
+# ============================================================================
+diff --git a/llvm/lib/Analysis/ValueTracking.cpp b/llvm/lib/Analysis/ValueTracking.cpp
+index 38f88850be0f..4758c661e334 100644
+--- a/llvm/lib/Analysis/ValueTracking.cpp
++++ b/llvm/lib/Analysis/ValueTracking.cpp
+@@ -9490,12 +9490,44 @@ isImpliedCondICmps(const ICmpInst *LHS, CmpPredicate RPred, const Value *R0,
+   // Take SGT as an example:  L0:x > L1:y and C >= 0
+   //                      ==> R0:(x -nsw y) < R1:(-C) is false
+   CmpInst::Predicate SignedLPred = LPred.getPreferredSignedPredicate();
++  
++  // ---- instrumentation (rustc-135941) -------------------------------------
++  // The NSWSub signed-implication arms below are sound when LPred is literally
++  // signed (pre-66badf2 behaviour). They become suspect only when reached via
++  // the samesign path: a raw *unsigned* LPred that getPreferredSignedPredicate
++  // canonicalised to a signed predicate. Fire only on that case, and only at
++  // the point an arm actually returns an implication.
++  auto log_135941 = [](const char *arm, const ICmpInst *LHS,
++                       CmpPredicate LPred, CmpInst::Predicate SignedLPred,
++                       CmpPredicate RPred) {
++    if (const char *path = std::getenv("MISCOMP_LOG")) {
++      if (FILE *f = std::fopen(path, "a")) {
++        StringRef fn = (LHS->getFunction() ? LHS->getFunction()->getName()
++                                           : StringRef("<none>"));
++        std::fprintf(f,
++            "MISCOMP rustc-135941 triggered: NSWSub %s arm, isImpliedByMatchingCmp "
++            "diverges (rawLPred=%s signedLPred=%s RPred=%s) fn=%s\n",
++            arm,
++            ICmpInst::getPredicateName(LPred).str().c_str(),
++            ICmpInst::getPredicateName(SignedLPred).str().c_str(),
++            ICmpInst::getPredicateName(RPred).str().c_str(),
++            fn.str().c_str());
++        std::fclose(f);
++      }
++    }
++  };
++  
+   if ((SignedLPred == ICmpInst::ICMP_SGT ||
+        SignedLPred == ICmpInst::ICMP_SGE) &&
+       match(R0, m_NSWSub(m_Specific(L0), m_Specific(L1)))) {
+     if (match(R1, m_NonPositive()) &&
+-        ICmpInst::isImpliedByMatchingCmp(LPred, RPred) == false)
+-      return false;
++        ICmpInst::isImpliedByMatchingCmp(LPred, RPred) == false) {
++          // INSTRUMENTATION for 135941 
++          if (ICmpInst::isImpliedByMatchingCmp(SignedLPred, RPred) != false) {
++            log_135941("SGT/SGE", LHS, LPred, SignedLPred, RPred);
++          } 
++          return false;
++        }
+   }
+ 
+   // Take SLT as an example:  L0:x < L1:y and C <= 0
+@@ -9504,8 +9536,13 @@ isImpliedCondICmps(const ICmpInst *LHS, CmpPredicate RPred, const Value *R0,
+        SignedLPred == ICmpInst::ICMP_SLE) &&
+       match(R0, m_NSWSub(m_Specific(L0), m_Specific(L1)))) {
+     if (match(R1, m_NonNegative()) &&
+-        ICmpInst::isImpliedByMatchingCmp(LPred, RPred) == true)
+-      return true;
++        ICmpInst::isImpliedByMatchingCmp(LPred, RPred) == true) {
++          // INSTRUMENTATION for 135941 
++          if (ICmpInst::isImpliedByMatchingCmp(SignedLPred, RPred) != true) {
++            log_135941("SLT/SLE", LHS, LPred, SignedLPred, RPred);
++          } 
++          return true;
++        }
+   }
+ 
+   // L0 = R0 = L1 + R1, L0 >=u L1 implies R0 >=u R1, L0 <u L1 implies R0 <u R1
